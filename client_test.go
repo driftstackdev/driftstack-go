@@ -1,0 +1,447 @@
+package driftstack
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+)
+
+func newServer(t *testing.T, handler http.HandlerFunc) (*httptest.Server, *Client) {
+	t.Helper()
+	srv := httptest.NewServer(handler)
+	t.Cleanup(srv.Close)
+	client := New("ds_test_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", WithBaseURL(srv.URL))
+	t.Cleanup(func() { _ = client.Close() })
+	return srv, client
+}
+
+// decodeBody reads a request body the handler under test received.
+func decodeBody(t *testing.T, r *http.Request) string {
+	t.Helper()
+	raw, err := io.ReadAll(r.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.TrimSpace(string(raw))
+}
+
+func sessionFixture() Session {
+	var label *string
+	return Session{
+		ID:        "ses_00000000-0000-4000-8000-000000000001",
+		AccountID: "acc_00000000-0000-4000-8000-000000000001",
+		APIKeyID:  "key_00000000-0000-4000-8000-000000000001",
+		Status:    SessionReady,
+		Archetype: "iphone17_ios18_7_safari26_4",
+		Label:     label,
+	}
+}
+
+func TestSessions_Create(t *testing.T) {
+	t.Parallel()
+	_, client := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" || r.URL.Path != "/v1/sessions" {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		if r.Header.Get("Authorization") == "" {
+			t.Error("missing Authorization header")
+		}
+		if !strings.HasPrefix(r.Header.Get("User-Agent"), "driftstack-sdk-go/") {
+			t.Errorf("user-agent=%q", r.Header.Get("User-Agent"))
+		}
+		w.Header().Set("content-type", "application/json")
+		w.WriteHeader(201)
+		_ = json.NewEncoder(w).Encode(sessionFixture())
+	})
+
+	got, err := client.Sessions.Create(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != sessionFixture().ID {
+		t.Errorf("id=%q", got.ID)
+	}
+}
+
+func TestSessions_List_PassesQueryParams(t *testing.T) {
+	t.Parallel()
+	_, client := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("limit") != "50" {
+			t.Errorf("limit=%q", r.URL.Query().Get("limit"))
+		}
+		w.Header().Set("content-type", "application/json")
+		_ = json.NewEncoder(w).Encode(SessionsListPage{
+			Data:    []Session{sessionFixture()},
+			HasMore: false,
+		})
+	})
+
+	got, err := client.Sessions.List(context.Background(), &ListSessionsQuery{Limit: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Data) != 1 || got.HasMore {
+		t.Errorf("unexpected page: %+v", got)
+	}
+}
+
+func TestSessions_Iterate_WalksCursorPages(t *testing.T) {
+	t.Parallel()
+	s1, s2, s3 := sessionFixture(), sessionFixture(), sessionFixture()
+	s1.ID, s2.ID, s3.ID = "ses_1", "ses_2", "ses_3"
+	pageOne := SessionsListPage{
+		Data:       []Session{s1, s2},
+		HasMore:    true,
+		NextCursor: stringPtr("ses_2"),
+	}
+	pageTwo := SessionsListPage{
+		Data:    []Session{s3},
+		HasMore: false,
+	}
+
+	requestN := 0
+	_, client := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		requestN++
+		w.Header().Set("content-type", "application/json")
+		if r.URL.Query().Get("cursor") == "" {
+			_ = json.NewEncoder(w).Encode(pageOne)
+		} else {
+			_ = json.NewEncoder(w).Encode(pageTwo)
+		}
+	})
+
+	var seen []string
+	err := client.Sessions.Iterate(context.Background(), nil, func(s *Session) (bool, error) {
+		seen = append(seen, s.ID)
+		return true, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(seen) != 3 {
+		t.Errorf("seen %d sessions, expected 3 (got %v)", len(seen), seen)
+	}
+	if requestN != 2 {
+		t.Errorf("requests %d, expected 2 (one per page)", requestN)
+	}
+}
+
+// End-to-end proof that the shared advanceCursor guard (already unit-tested
+// generically in pagination_test.go via Profiles) is wired into Sessions'
+// Iterate too: a server that returns the SAME non-null cursor forever must
+// surface an error rather than spin infinitely and hang the caller.
+func TestSessions_Iterate_NonAdvancingCursorDoesNotHang(t *testing.T) {
+	t.Parallel()
+	requestN := 0
+	_, client := newServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		requestN++
+		w.Header().Set("content-type", "application/json")
+		_ = json.NewEncoder(w).Encode(SessionsListPage{
+			Data:       []Session{sessionFixture()},
+			HasMore:    true,
+			NextCursor: stringPtr("stuck"),
+		})
+	})
+
+	seen := 0
+	err := client.Sessions.Iterate(context.Background(), nil, func(_ *Session) (bool, error) {
+		seen++
+		return true, nil
+	})
+	if err == nil {
+		t.Fatal("expected an error on a non-advancing cursor, got nil (would have hung)")
+	}
+	var te *TransportError
+	if !errors.As(err, &te) {
+		t.Errorf("error is %T, want *TransportError", err)
+	}
+	// page1 cursor="" → advance to "stuck"; page2 cursor="stuck" → "stuck" again
+	// → guard fires. Exactly 2 requests, not ∞.
+	if requestN != 2 {
+		t.Errorf("requests %d, expected 2 (guard stops the walk)", requestN)
+	}
+	if seen != 2 {
+		t.Errorf("seen %d, expected 2", seen)
+	}
+}
+
+func TestSessions_Navigate_SerializesBody(t *testing.T) {
+	t.Parallel()
+	_, client := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/sessions/ses_x/navigate" {
+			t.Errorf("path=%q", r.URL.Path)
+		}
+		var body NavigateRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if body.URL != "https://example.com/" {
+			t.Errorf("body.url=%q", body.URL)
+		}
+		w.Header().Set("content-type", "application/json")
+		_ = json.NewEncoder(w).Encode(NavigateResponse{
+			URL: body.URL, Status: 200, FinalURL: body.URL, DurationMS: 100,
+		})
+	})
+
+	got, err := client.Sessions.Navigate(context.Background(), "ses_x", &NavigateRequest{
+		URL: "https://example.com/",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != 200 {
+		t.Errorf("status=%d", got.Status)
+	}
+}
+
+func TestSessions_Destroy_204_ReturnsNil(t *testing.T) {
+	t.Parallel()
+	_, client := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(204)
+	})
+	if err := client.Sessions.Destroy(context.Background(), "ses_x"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSessions_PathEscaping(t *testing.T) {
+	t.Parallel()
+	calledRawPath := ""
+	_, client := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		// EscapedPath returns the wire form (with %XX escapes) — Path
+		// is the decoded version.
+		calledRawPath = r.URL.EscapedPath()
+		w.Header().Set("content-type", "application/json")
+		_ = json.NewEncoder(w).Encode(sessionFixture())
+	})
+	if _, err := client.Sessions.Get(context.Background(), "ses_with/slash"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(calledRawPath, "ses_with%2Fslash") {
+		t.Errorf("escaped_path=%q (expected slash to be URL-encoded)", calledRawPath)
+	}
+}
+
+func TestProblemJsonMapsToTypedError(t *testing.T) {
+	t.Parallel()
+	_, client := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("content-type", "application/problem+json")
+		w.Header().Set("retry-after", "7")
+		w.WriteHeader(429)
+		_, _ = w.Write([]byte(`{"type":"https://errors.driftstack.dev/rate-limited","title":"Rate limited","status":429,"detail":"slow down"}`))
+	})
+	// Disable retry so we observe the error directly rather than the
+	// loop swallowing it.
+	client.retry = RetryConfig{Disabled: true}
+
+	_, err := client.Sessions.Create(context.Background(), nil)
+	var rl *RateLimitError
+	if !errors.As(err, &rl) {
+		t.Fatalf("expected RateLimitError, got %T (%v)", err, err)
+	}
+	if rl.RetryAfterSeconds != 7 {
+		t.Errorf("retry_after=%d", rl.RetryAfterSeconds)
+	}
+}
+
+func TestUsage_CurrentPeriod(t *testing.T) {
+	t.Parallel()
+	_, client := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("content-type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"period_start": "2026-05-01T00:00:00Z",
+			"period_end":   "2026-06-01T00:00:00Z",
+			"tier":         "api_builder",
+			"totals":       map[string]int{"navigate": 5},
+			"quotas":       map[string]int{"navigate": 25000},
+		})
+	})
+
+	got, err := client.Usage.CurrentPeriod(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Tier != TierAPIBuilder {
+		t.Errorf("tier=%q", got.Tier)
+	}
+}
+
+func TestWebhooks_CreateReturnsSecret(t *testing.T) {
+	t.Parallel()
+	_, client := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(201)
+		w.Header().Set("content-type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id":                   "whk_00000000-0000-4000-8000-000000000001",
+			"url":                  "https://customer.test/hook",
+			"secret_prefix":        "whsec_aaaa",
+			"events":               []string{"session.completed"},
+			"description":          nil,
+			"active":               true,
+			"consecutive_failures": 0,
+			"last_success_at":      nil,
+			"last_failure_at":      nil,
+			"disabled_at":          nil,
+			"created_at":           "2026-05-02T10:00:00Z",
+			"secret":               "whsec_secretsecretsecretsecretsecretsec",
+		})
+	})
+
+	got, err := client.Webhooks.Create(context.Background(), &CreateWebhookRequest{
+		URL:    "https://customer.test/hook",
+		Events: []WebhookEventType{EventSessionCompleted},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(got.Secret, "whsec_") {
+		t.Errorf("secret=%q", got.Secret)
+	}
+}
+
+func TestWebhooks_ListDeliveries_StatusFilter(t *testing.T) {
+	t.Parallel()
+	_, client := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("status") != "delivered" {
+			t.Errorf("status=%q", r.URL.Query().Get("status"))
+		}
+		if r.URL.Query().Get("limit") != "25" {
+			t.Errorf("limit=%q", r.URL.Query().Get("limit"))
+		}
+		w.Header().Set("content-type", "application/json")
+		_ = json.NewEncoder(w).Encode(WebhookDeliveryListPage{Data: []WebhookDelivery{}})
+	})
+
+	_, err := client.Webhooks.ListDeliveries(context.Background(), "whk_x", &ListDeliveriesQuery{
+		Status: DeliveryDelivered,
+		Limit:  25,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// blipServer returns a test server whose first call fails the connection
+// (hijack + close) and whose subsequent calls succeed with `body`. It
+// reports the call count via the returned pointer.
+func blipServer(t *testing.T, status int, body any) (*httptest.Server, *int) {
+	t.Helper()
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			// Force a connection-side failure on the first attempt by
+			// hijacking + closing.
+			hj, _ := w.(http.Hijacker)
+			conn, _, _ := hj.Hijack()
+			_ = conn.Close()
+			return
+		}
+		w.Header().Set("content-type", "application/json")
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(body)
+	}))
+	t.Cleanup(srv.Close)
+	return srv, &calls
+}
+
+func fastRetryClient(t *testing.T, baseURL string) *Client {
+	t.Helper()
+	client := New("ds_test_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		WithBaseURL(baseURL),
+		WithRetry(RetryConfig{MaxRetries: 2, InitialDelay: 1 * 1000 * 1000, MaxDelay: 2 * 1000 * 1000}),
+	)
+	t.Cleanup(func() { _ = client.Close() })
+	return client
+}
+
+func TestRetryRecoversFromTransientNetworkBlip(t *testing.T) {
+	t.Parallel()
+	// A GET is idempotent → the retry loop runs and recovers from the blip.
+	srv, calls := blipServer(t, 200, sessionFixture())
+	client := fastRetryClient(t, srv.URL)
+
+	got, err := client.Sessions.Get(context.Background(), "ses_x")
+	if err != nil {
+		t.Fatalf("expected retry to succeed, got %v after %d calls", err, *calls)
+	}
+	if got.ID == "" {
+		t.Errorf("empty session")
+	}
+	if *calls != 2 {
+		t.Errorf("calls=%d, want 2 (one fail + one success)", *calls)
+	}
+}
+
+// A keyless POST (non-idempotent create) must NOT be auto-retried — a
+// transient blip might already have been applied server-side, so a retry
+// could double-submit. The blip surfaces to the caller after one attempt.
+func TestKeylessPostIsNotRetried(t *testing.T) {
+	t.Parallel()
+	srv, calls := blipServer(t, 201, sessionFixture())
+	client := fastRetryClient(t, srv.URL)
+
+	_, err := client.Sessions.Create(context.Background(), nil)
+	if err == nil {
+		t.Fatalf("expected the transient blip to surface (no retry), got nil after %d calls", *calls)
+	}
+	if *calls != 1 {
+		t.Errorf("calls=%d, want 1 (keyless POST must not retry)", *calls)
+	}
+}
+
+// A POST carrying an Idempotency-Key IS retry-safe — the server replays
+// the original response on the key, so the loop recovers from the blip.
+func TestKeyedPostIsRetried(t *testing.T) {
+	t.Parallel()
+	srv, calls := blipServer(t, 201, map[string]string{"id": "agt_x"})
+	client := fastRetryClient(t, srv.URL)
+
+	key := "idem-abc-123"
+	_, err := client.AgentSessions.Create(
+		context.Background(), nil, &CreateOptions{IdempotencyKey: key},
+	)
+	if err != nil {
+		t.Fatalf("expected keyed retry to succeed, got %v after %d calls", err, *calls)
+	}
+	if *calls != 2 {
+		t.Errorf("calls=%d, want 2 (keyed POST may retry)", *calls)
+	}
+}
+
+// A response body larger than the 8 MiB drain cap must surface an EXPLICIT
+// size-limit TransportError, not a silently-truncated body that then fails
+// JSON decoding with a misleading "failed to parse JSON response body". The
+// SDK re-audit 2026-07-02: io.LimitReader truncates without error, so the old
+// read (cap exactly) masked oversized bodies as parse failures.
+func TestOversizedResponseBody_SurfacesExplicitError(t *testing.T) {
+	t.Parallel()
+	const maxBodyBytes = 8 * 1024 * 1024
+	padding := strings.Repeat("a", maxBodyBytes+1024) // valid JSON, just over the cap
+	_, client := newServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("content-type", "application/json")
+		w.WriteHeader(200)
+		_, _ = w.Write([]byte(`{"data":[],"has_more":false,"padding":"` + padding + `"}`))
+	})
+
+	_, err := client.Sessions.List(context.Background(), nil)
+	if err == nil {
+		t.Fatal("expected an error for an oversized response body, got nil")
+	}
+	var te *TransportError
+	if !errors.As(err, &te) {
+		t.Fatalf("expected *TransportError, got %T: %v", err, err)
+	}
+	if !strings.Contains(te.Message, "exceeds") || !strings.Contains(te.Message, "limit") {
+		t.Errorf("want an explicit size-limit message, got %q", te.Message)
+	}
+	if strings.Contains(te.Message, "parse JSON") {
+		t.Errorf("size-limit error must not masquerade as a JSON parse failure: %q", te.Message)
+	}
+}
