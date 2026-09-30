@@ -6,6 +6,20 @@ follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed — module path (2026-09-30)
+
+- **The module is `github.com/driftstackdev/driftstack-go`.** The SDK is
+  published from its own repository now, so install and import it from there:
+  `go get github.com/driftstackdev/driftstack-go@latest` and
+  `driftstack "github.com/driftstackdev/driftstack-go"`. The old path,
+  `github.com/driftstackdev/driftstack-api/packages/sdk-go`, keeps building
+  for existing programs at the versions the module proxy already serves
+  (v0.4.0 and earlier) and receives no new versions.
+  **What to do:** change the import path — a `sed` over your `*.go` files —
+  then `go get github.com/driftstackdev/driftstack-go@latest` and
+  `go mod tidy`. Nothing else changes: the package name is still
+  `driftstack`, and the API is the same.
+
 ### Changed — BREAKING (2026-09-27)
 
 - **`AgentSessions.Create` requires `ProxyID`.** Every agent session now runs
