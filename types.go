@@ -282,8 +282,11 @@ type ListSessionsQuery struct {
 }
 
 type NavigateRequest struct {
-	URL       string `json:"url"`
-	WaitUntil string `json:"wait_until,omitempty"` // load | domcontentloaded | networkidle
+	URL string `json:"url"`
+	// When the call returns: "load" (the server default when omitted),
+	// "domcontentloaded" or "networkidle". "networkidle" is accepted and
+	// currently waits for the load event, the same as "load".
+	WaitUntil string `json:"wait_until,omitempty"`
 	// Per-call timeout in ms. Server clamps to 1000–120000. Zero/omit
 	// = server default (currently 30s).
 	TimeoutMS int `json:"timeout_ms,omitempty"`

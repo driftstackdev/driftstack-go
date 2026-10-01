@@ -6,73 +6,7 @@ follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Changed — module path (2026-09-30)
-
-- **The module is `github.com/driftstackdev/driftstack-go`.** The SDK is
-  published from its own repository now, so install and import it from there:
-  `go get github.com/driftstackdev/driftstack-go@latest` and
-  `driftstack "github.com/driftstackdev/driftstack-go"`. The old path,
-  `github.com/driftstackdev/driftstack-api/packages/sdk-go`, keeps building
-  for existing programs at the versions the module proxy already serves
-  (v0.4.0 and earlier) and receives no new versions.
-  **What to do:** change the import path — a `sed` over your `*.go` files —
-  then `go get github.com/driftstackdev/driftstack-go@latest` and
-  `go mod tidy`. Nothing else changes: the package name is still
-  `driftstack`, and the API is the same.
-
-### Changed — BREAKING (2026-09-27)
-
-- **`AgentSessions.Create` requires `ProxyID`.** Every agent session now runs
-  through a proxy you chose, so a create with an empty `ProxyID` is refused with
-  the new **`*ProxyRequiredError`** (HTTP 422, type
-  `https://errors.driftstack.dev/proxy-required`, `Code` `"proxy_required"`,
-  `errors.Is(err, driftstack.ErrProxyRequired)`) before anything is created —
-  no session, no charge, nothing recorded under your idempotency key. The
-  field keeps its type, so this is a behaviour change your compiler will not
-  catch: set it on every create.
-  **What to do:** pass the id of one of your saved proxies:
-  `&driftstack.CreateAgentSessionRequest{Mode: "ai", ProxyID: "b1d7…"}`.
-  `client.Egress.ListProxies` lists the ids you have and
-  `client.Egress.CreateProxy` saves a new one; both need a key with the
-  `account_owner` scope. A proxy you add in the desktop app is saved to your
-  account the first time the app tests it or launches through it.
-- **`Sessions.Create` and `Profiles.Launch`** (`POST /v1/sessions`,
-  `POST /v1/profiles/{id}/launch`) are unchanged: they do not take a proxy, and
-  only agent sessions require one. A deployment configured to require a
-  customer proxy for every session refuses them with the same
-  `*ProxyRequiredError`. To run a session through one of your saved proxies, use
-  `AgentSessions.Create` with `ProxyID` (and `ProfileID` to launch a profile).
-
-### Added
-
-- **`AiCreditsExhaustedError` / `ErrAiCreditsExhausted`** (HTTP 402, type
-  `https://errors.driftstack.dev/ai-credits-exhausted`): an AI turn could not
-  run on your account's AI credits, and nothing ran. `Reason` is `"balance"`
-  (the credits your plan or trial includes are used up; `AvailableCredits`,
-  `RequiredCredits` and, when known, `ResetsAt`), `"debt"` (AI is paused on
-  the account; `DebtReason`) or `"task_too_large"` (shorten the request or
-  start a new chat). A key of your own still runs the turn. Not retryable
-  as-is.
-- **`TrialEndedError` / `ErrTrialEnded`** (HTTP 402, type
-  `https://errors.driftstack.dev/trial-ended`): your free trial has ended, so a
-  new session is refused until you choose a plan. Every other call keeps
-  working. Not retryable as-is.
-- **The 2026-09 plans are available from 2026-09-29.** A new account starts on
-  the 7-day free trial (`TierTrial`), and `TierStarterV3`, `TierProV3` and
-  `TierTeamV3` can be bought in the dashboard; Scale (`TierScaleV3`) is sold by
-  talking to us. The earlier plans stay valid for the accounts that hold them.
-- **`ProxyRequiredError` / `ErrProxyRequired`** — see above. `Code` is
-  `"proxy_required"`; the error's message is a sentence you can show your
-  user. Not retryable as-is.
-- **`AgentSessions.LivekitToken(ctx, id)` is back** —
-  `POST /v1/agent-sessions/{id}/livekit-token`. Live video stays part of the
-  public API: it mints a fresh `*LiveKitInfo` for a running session's video
-  room, for when the `LiveKit` field on the created session is nil or its
-  24-hour token has expired. Same signature and return type as before
-  0.5.0. `SetMode`, `Takeover`, `Handback` and `SendInputEvent` stay
-  removed — see [0.5.0](#050---2026-09-28).
-
-## [0.5.0] - 2026-09-28
+## [0.5.0] - 2026-09-30
 
 **Breaking: the module now covers what a program needs to run Driftstack, and
 nothing a person manages in the dashboard.** Sign-up and sign-in, two-factor,
@@ -82,6 +16,62 @@ done in the [Driftstack dashboard](https://app.driftstack.io). Their methods
 are removed, and their endpoints are no longer in the API reference. Sessions,
 agent sessions, profiles and snapshots, saved proxies, archetypes, recipes,
 webhooks, usage and rate limits are unchanged.
+
+v0.5.0 is also the first version published at the module's own path,
+`github.com/driftstackdev/driftstack-go`, and agent sessions now require a
+proxy of yours.
+
+### Upgrading from v0.4.0
+
+Three things a v0.4.0 program needs changed. Step 1 is how you get v0.5.0 at
+all. Step 2 compiles as it is and is refused at run time, so make it before you
+deploy. Step 3 matters only if your program calls something that was removed,
+and the compiler points out each call.
+
+1. **Change the module path to `github.com/driftstackdev/driftstack-go`.** The
+   SDK is published from its own repository now, so install and import it from
+   there. The old path, `github.com/driftstackdev/driftstack-api/packages/sdk-go`,
+   keeps building for existing programs at the versions the module proxy
+   already serves (v0.4.0 and earlier) and receives no new versions: there is
+   no v0.5.0 at it. Rewrite the import path in your `*.go` files, then fetch
+   the module and tidy:
+
+   ```sh
+   grep -rl --include='*.go' 'driftstack-api/packages/sdk-go' . |
+     xargs sed -i.bak 's#github\.com/driftstackdev/driftstack-api/packages/sdk-go#github.com/driftstackdev/driftstack-go#g'
+   find . -name '*.go.bak' -delete
+   go get github.com/driftstackdev/driftstack-go@latest
+   go mod tidy
+   ```
+
+   Your imports then read `driftstack "github.com/driftstackdev/driftstack-go"`.
+   The path is all this step changes: the package name is still `driftstack`.
+
+2. **Set `ProxyID` on every `AgentSessions.Create`.** Every agent session now
+   runs through a proxy you chose, so a create with an empty `ProxyID` is
+   refused with the new **`*ProxyRequiredError`** (HTTP 422, type
+   `https://errors.driftstack.dev/proxy-required`, `Code` `"proxy_required"`,
+   `errors.Is(err, driftstack.ErrProxyRequired)`) before anything is created —
+   no session, no charge, nothing recorded under your idempotency key. The
+   field keeps its type, so this is a behaviour change your compiler will not
+   catch. Pass the id of one of your saved proxies:
+   `&driftstack.CreateAgentSessionRequest{Mode: "ai", ProxyID: "b1d7…"}`.
+   `client.Egress.ListProxies` lists the ids you have and
+   `client.Egress.CreateProxy` saves a new one; both need a key with the
+   `account_owner` scope. A proxy you add in the desktop app is saved to your
+   account the first time the app tests it or launches through it.
+
+   `Sessions.Create` and `Profiles.Launch` (`POST /v1/sessions`,
+   `POST /v1/profiles/{id}/launch`) are unchanged: they do not take a proxy, and
+   only agent sessions require one. A deployment configured to require a
+   customer proxy for every session refuses them with the same
+   `*ProxyRequiredError`. To run a session through one of your saved proxies,
+   use `AgentSessions.Create` with `ProxyID` (and `ProfileID` to launch a
+   profile).
+
+3. **Remove calls to what moved to the dashboard.** Everything under
+   **Removed** below is gone from the module, so a program that still calls it
+   fails to compile. The paragraph above says where that work is done now.
 
 ### Removed
 
@@ -97,11 +87,13 @@ webhooks, usage and rate limits are unchanged.
   `…ByokAnthropicKey` methods. The monthly AI cap and a stored Anthropic key
   are set in dashboard Settings; a key for one agent session is still passed
   to `AgentSessions.Create`.
-- **`AgentSessionsResource`:** `SetMode`, `Takeover`, `Handback`,
-  `SendInputEvent` and `LivekitToken`. They control a session a person drives
-  in the Driftstack desktop app, which is not part of this API.
-  (`LivekitToken` returns in the next release — live video stays public; see
-  [Unreleased](#unreleased).)
+- **`AgentSessionsResource`:** `SetMode`, `Takeover`, `Handback` and
+  `SendInputEvent`. They control a session a person drives in the Driftstack
+  desktop app, which is not part of this API. `LivekitToken` stays, with the
+  same signature and return type as in v0.4.0: live video is part of the
+  public API, and it mints a fresh `*LiveKitInfo` for a running session's
+  video room when the `LiveKit` field on the created session is nil or its
+  24-hour token has expired.
 - **`ProfilesResource.Transfer`:** giving a profile to another account is not
   part of the public API. To hand one over, `Profiles.Export` it and have the
   other account `Profiles.Import` the file.
@@ -134,6 +126,21 @@ webhooks, usage and rate limits are unchanged.
   `HeldReason` the reason for the hold in one plain sentence (`""` when there
   is none).
   `errors.Is` matches both `ErrDeviceUnavailable` and `ErrConflict`.
+- **`AiCreditsExhaustedError` / `ErrAiCreditsExhausted`** (HTTP 402, type
+  `https://errors.driftstack.dev/ai-credits-exhausted`): an AI turn could not
+  run on your account's AI credits, and nothing ran. `Reason` is `"balance"`
+  (the credits your plan or trial includes are used up; `AvailableCredits`,
+  `RequiredCredits` and, when known, `ResetsAt`), `"debt"` (AI is paused on
+  the account; `DebtReason`) or `"task_too_large"` (shorten the request or
+  start a new chat). A key of your own still runs the turn. Not retryable
+  as-is.
+- **`TrialEndedError` / `ErrTrialEnded`** (HTTP 402, type
+  `https://errors.driftstack.dev/trial-ended`): your free trial has ended, so a
+  new session is refused until you choose a plan. Every other call keeps
+  working. Not retryable as-is.
+- **`ProxyRequiredError` / `ErrProxyRequired`** — see step 2 of
+  **Upgrading from v0.4.0** above. `Code` is `"proxy_required"`; the error's
+  message is a sentence you can show your user. Not retryable as-is.
 - **`AgentSession.ProxyID`** — `*string`, the id of the account proxy
   (`GET /v1/account/me/proxies`) the session's traffic goes out through.
   That is the `proxy_id` the create named, or the one a successful
@@ -142,12 +149,11 @@ webhooks, usage and rate limits are unchanged.
   Every agent session created since proxy_id became required has one; `nil` only on an older
   session created without a proxy of yours, and when an older server did not
   send the field.
-- **The ids of the plans coming in 2026-09.** `TierTrial` (`"trial"`, the
-  7-day free trial a new account will start on), `TierStarterV3`,
-  `TierProV3`, `TierTeamV3` and `TierScaleV3`. They are not offered yet;
-  knowing them now means this release reads an account on one of them
-  correctly from the day they launch. The earlier plans' constants stay: an
-  account that holds one keeps it. No new id reuses an old one.
+- **The 2026-09 plans, available from 2026-09-29.** A new account starts on
+  the 7-day free trial (`TierTrial`, `"trial"`), and `TierStarterV3`,
+  `TierProV3` and `TierTeamV3` can be bought in the dashboard; Scale
+  (`TierScaleV3`) is sold by talking to us. The earlier plans' constants
+  stay: an account that holds one keeps it. No new id reuses an old one.
 - **`AccountSelfProfile.TrialEndsAt` and `.TrialEnded`.** When the account's
   free trial ends (or ended), `nil` when it is not on a trial; and whether it
   has ended. An account whose trial has ended can still sign in and read

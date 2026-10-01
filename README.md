@@ -4,11 +4,14 @@ Stealth iPhone Safari automation, called from Go. Single-package, zero non-stdli
 
 > **Status:** published as a tagged pre-1.0 module. Commit `go.mod` and `go.sum` for reproducible deployments.
 
-> **Where this module lives.** Development continues in `packages/sdk-go` of
-> the `driftstack-api` repository; every publication goes to
-> [github.com/driftstackdev/driftstack-go](https://github.com/driftstackdev/driftstack-go),
-> which is the module path and where `go get` installs it from. Moved from
-> `packages/sdk-go` in `driftstack-api` on 2026-09-30.
+> **Where this module lives.** `github.com/driftstackdev/driftstack-go` is the
+> module path and where `go get` installs it from, starting with v0.5.0
+> (published 2026-09-30). v0.4.0 and earlier were published from
+> `packages/sdk-go` of the `driftstack-api` repository and stay installable at
+> that path, which receives no new versions; the 0.5.0 entry in the CHANGELOG
+> has the steps to move. Development continues in `packages/sdk-go` of
+> `driftstack-api`; every publication goes to
+> [github.com/driftstackdev/driftstack-go](https://github.com/driftstackdev/driftstack-go).
 
 ## Install
 
