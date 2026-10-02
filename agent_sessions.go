@@ -281,7 +281,11 @@ type AgentUsage struct {
 // produced, Notice, when set, says why the task is not finished yet, and
 // NoticeReason says the same in one word you can switch on.
 // OK is true when the last planned steps ran cleanly; it does not by itself
-// mean the task is finished. Read typed steps with ParsedResults.
+// mean the task is finished. It is false when a step failed (a tap that changed
+// nothing on the page is a failed step, Diagnosis.Category "no_effect"), when a
+// step is waiting for approval, and whenever NoticeReason is "no_progress" —
+// the turn stopped because nothing was changing, so it did not succeed. Read
+// typed steps with ParsedResults.
 type AgentMessageResponse struct {
 	Kind    string       `json:"kind"`
 	Session AgentSession `json:"session"`
@@ -323,7 +327,7 @@ type AgentMessageResponse struct {
 	//	"step_limit"     the task needs more steps than one message runs; send "continue"
 	//	"time_limit"     the message was taking too long; send "continue"
 	//	"budget_low"     too little of the session's AI budget is left; start a new session
-	//	"no_progress"    the page stopped changing and the next step would repeat; ask a person
+	//	"no_progress"    the page stopped changing and the next step would repeat; ask a person (OK is false)
 	//	"repeated_step"  the next step would repeat an action that already ran; check, then "continue"
 	//	"ai_unavailable" the next steps could not be worked out just now; send "continue" to try again
 	//	"page_unreadable" the page could not be read to plan the next step; send "continue" to try again
@@ -411,8 +415,11 @@ type AgentIntent struct {
 // "condition_not_met", "capture_failed", "scroll_failed", "session_error",
 // "invalid_request", "result_too_large", "element_covered",
 // "target_unverified", "credential_site_not_allowed", "session_unresponsive",
-// "unknown", and more over time): treat a value you do not recognise as
-// "unknown".
+// "no_effect", "unknown", and more over time): treat a value you do not
+// recognise as "unknown".
+// "no_effect" means a tap WAS made and nothing on the page changed in
+// response: whatever the step was for did not happen; look at the page and try
+// something else.
 // "credential_site_not_allowed" means a saved credential was not typed because
 // the page was not an https:// page on a website the credential is saved for.
 // "session_unresponsive" means the browser in this session stopped responding,
@@ -428,11 +435,15 @@ type AgentFailureDiagnosis struct {
 // AgentStepWarning is something worth knowing about a step that SUCCEEDED;
 // a nil Warning means there is nothing to report. Kind is an open set — treat
 // a value you do not recognise as a note and read the step's Summary. Today's
-// kind is "http_error_status": a navigation reached the site and the site
+// kinds are "http_error_status": a navigation reached the site and the site
 // answered with an HTTP status of 400 or above, carried in Status. The step
 // still succeeded: the page that loaded may be an error page, a page asking to
 // sign in or to complete a verification step, or the whole page served under
-// that status, and Summary says what the site answered.
+// that status, and Summary says what the site answered. And "effect_unknown":
+// a tap was made, and whether it changed anything on the page could not be
+// checked — do not count the step as having done what it was for until the
+// page shows it. (A tap known to have changed nothing is a "failure" with
+// Diagnosis.Category "no_effect", never a success.)
 type AgentStepWarning struct {
 	Kind   string `json:"kind"`
 	Status *int   `json:"status,omitempty"`

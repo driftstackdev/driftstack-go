@@ -27,6 +27,17 @@ follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Changed (2026-10-02)
 
+- **A tap that changed nothing is a failed step, and a turn that stopped
+  because nothing was changing is not `OK`.** A tap the browser made and then
+  saw change nothing on the page now comes back as a `"failure"` with
+  `Diagnosis.Category == "no_effect"`, not as a `"success"`; the agent looks at
+  the page again and tries something else. A tap where whether it changed
+  anything could not be checked is still a `"success"`, now with
+  `Warning.Kind == "effect_unknown"` and a summary that says so. An
+  `AgentMessageResponse` with `NoticeReason == "no_progress"` now always has
+  `OK` false. A `"type"` step the browser could type only part of is a
+  `"failure"`.
+
 - **`AccountResource.ListCredentials` follows the team workspace.** With
   `WithEffectiveAccount`, a team member of either role lists the account
   owner's saved credentials — the ones agent tasks in that workspace use — as
