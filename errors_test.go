@@ -332,6 +332,41 @@ func TestDeviceUnavailableCarriesTheDeviceAndItsReason(t *testing.T) {
 	}
 }
 
+func TestSessionNotReadyIsARetryableConflictWithItsWait(t *testing.T) {
+	t.Parallel()
+	// A message to an agent session whose browser is still starting waits, and
+	// then — still not ready — is refused 409 session-not-ready. Nothing ran,
+	// so it is retryable, after the wait the problem carries. errors.Is matches
+	// BOTH ErrSessionNotReady and the broader ErrConflict.
+	body := []byte(`{"type":"https://errors.driftstack.dev/session-not-ready","title":"Session not ready","status":409,"detail":"The session is still starting. Try again in a few seconds.","code":"session_not_ready","retryable":true,"retry_after_seconds":5}`)
+	err := errorFromResponse(409, body, "5")
+	var nr *SessionNotReadyError
+	if !errors.As(err, &nr) {
+		t.Fatalf("expected *SessionNotReadyError, got %T", err)
+	}
+	if nr.Code != "session_not_ready" {
+		t.Errorf("Code=%q, want session_not_ready", nr.Code)
+	}
+	if nr.RetryAfterSeconds != 5 {
+		t.Errorf("RetryAfterSeconds=%d, want 5", nr.RetryAfterSeconds)
+	}
+	if !nr.Retryable {
+		t.Error("Retryable=false, want true")
+	}
+	if nr.Status != 409 {
+		t.Errorf("status=%d, want 409", nr.Status)
+	}
+	if !errors.Is(err, ErrSessionNotReady) {
+		t.Error("expected errors.Is ErrSessionNotReady")
+	}
+	if !errors.Is(err, ErrConflict) {
+		t.Error("expected errors.Is ErrConflict (a session-not-ready refusal IS a 409 conflict)")
+	}
+	if !IsRetryable(err) {
+		t.Error("session-not-ready must be retryable: nothing ran")
+	}
+}
+
 func TestDeviceUnavailableWithoutAReasonLeavesItEmpty(t *testing.T) {
 	t.Parallel()
 	body := []byte(`{"type":"https://errors.driftstack.dev/device-unavailable","title":"Device unavailable","status":409,"detail":"This device profile is on hold. Pick another device.","archetype":"iphone17promax_ios18_7_safari26_0_1"}`)

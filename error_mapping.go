@@ -52,7 +52,7 @@ var problemTypeToFactory = map[string]func(base apiError, problem map[string]any
 	"https://errors.driftstack.dev/proxy-validation-failed": buildProxyValidationFailed,
 	// Single-active-session-per-profile guard (409 at launch).
 	"https://errors.driftstack.dev/profile-in-use": buildProfileInUse,
-	// Too large for the endpoint or for the session's device (413).
+	// Too large for the endpoint or for the session (413).
 	"https://errors.driftstack.dev/payload-too-large": buildPayloadTooLarge,
 	// The profile's device is not offered right now (409 at launch).
 	"https://errors.driftstack.dev/device-unavailable": buildDeviceUnavailable,
@@ -64,6 +64,8 @@ var problemTypeToFactory = map[string]func(base apiError, problem map[string]any
 	"https://errors.driftstack.dev/ai-credits-exhausted": buildAiCreditsExhausted,
 	// The account's trial is over; sessions start again once it subscribes (402).
 	"https://errors.driftstack.dev/trial-ended": buildTrialEnded,
+	// The agent session's browser is still starting (409, retryable).
+	"https://errors.driftstack.dev/session-not-ready": buildSessionNotReady,
 }
 
 // errorFromResponse parses an HTTP response body as RFC 7807
@@ -276,6 +278,30 @@ func buildDeviceUnavailable(base apiError, problem map[string]any, _ string) err
 	return &DeviceUnavailableError{apiError: base, Archetype: archetype, HeldReason: heldReason}
 }
 
+func buildSessionNotReady(base apiError, problem map[string]any, retryAfterHeader string) error {
+	code, _ := problem["code"].(string)
+	// Nothing ran, so it is retryable unless the server says otherwise.
+	retryable := true
+	if v, ok := problem["retryable"].(bool); ok {
+		retryable = v
+	}
+	retryAfter := intFromProblem(problem, "retry_after_seconds")
+	if retryAfter == 0 && retryAfterHeader != "" {
+		if n, err := strconv.Atoi(retryAfterHeader); err == nil {
+			retryAfter = n
+		}
+	}
+	if retryAfter <= 0 {
+		retryAfter = 5
+	}
+	return &SessionNotReadyError{
+		apiError:          base,
+		Code:              code,
+		Retryable:         retryable,
+		RetryAfterSeconds: retryAfter,
+	}
+}
+
 func buildPayloadTooLarge(base apiError, problem map[string]any, _ string) error {
 	return &PayloadTooLargeError{
 		apiError:   base,
@@ -476,6 +502,7 @@ var (
 	_ error = (*DeviceUnavailableError)(nil)
 	_ error = (*ProxyRequiredError)(nil)
 	_ error = (*UpgradeRequiredError)(nil)
+	_ error = (*SessionNotReadyError)(nil)
 	_ error = (*StorageQuotaExceededError)(nil)
 	_ error = (*ProxyValidationFailedError)(nil)
 	_ error = (*UnknownError)(nil)

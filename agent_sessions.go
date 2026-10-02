@@ -37,12 +37,25 @@ type LiveKitInfo struct {
 // AgentSession is the read envelope returned by Create / Get / and as
 // the .Session field of every Message response.
 type AgentSession struct {
-	ID                   string  `json:"id"`
-	AccountID            string  `json:"account_id"`
-	DriftstackSessionID  *string `json:"driftstack_session_id"`
-	Status               string  `json:"status"`
-	ClosedReason         *string `json:"closed_reason"`
-	ProvisioningDetail   *string `json:"provisioning_detail,omitempty"`
+	ID                  string  `json:"id"`
+	AccountID           string  `json:"account_id"`
+	DriftstackSessionID *string `json:"driftstack_session_id"`
+	Status              string  `json:"status"`
+	ClosedReason        *string `json:"closed_reason"`
+	ProvisioningDetail  *string `json:"provisioning_detail,omitempty"`
+	// Ready is whether the session's browser has finished starting: true once
+	// the session has reported it ready. Status reads "active" from
+	// the moment the session is created, before that. Wait for IsReady before
+	// sending the first message (a message sent earlier waits, then may be
+	// refused with SessionNotReadyError). A VPN session can take longer to
+	// become ready. A session that closes while Ready is false failed to start;
+	// ClosedReason says why. nil when an older server does not send it — that
+	// server does not hold messages either, so IsReady reads nil as ready.
+	Ready *bool `json:"ready,omitempty"`
+	// ReadyAt is when the session reported its browser ready (ISO-8601); nil
+	// until then, on a session that never became ready, on one that never
+	// reports, and from an older server.
+	ReadyAt              *string `json:"ready_at,omitempty"`
 	TokenBudgetTotal     int     `json:"token_budget_total"`
 	TokenBudgetRemaining int     `json:"token_budget_remaining"`
 	TranscriptLength     int     `json:"transcript_length"`
@@ -95,15 +108,22 @@ type AgentSession struct {
 	// proxy of yours, and when an older server does not send the field.
 	ProxyID *string `json:"proxy_id,omitempty"`
 	// UploadMaxFileBytes is the largest file, in bytes, one upload to this
-	// session can carry right now. Each device takes a file up to its own size,
+	// session can carry right now. Each session takes a file up to its own size,
 	// so this can be smaller than the 64 MiB per-file maximum. Set by Get while
-	// the session is running on a connected device; nil means not known.
+	// the session is running and has reported it; nil means not known.
 	UploadMaxFileBytes *int64 `json:"upload_max_file_bytes,omitempty"`
 	// The structured reason a session degraded or failed. nil when nothing has
 	// gone wrong. Carries Severity, CustomerActionable and Retryable, which is
 	// what a caller needs to decide whether to surface the failure to a human or
 	// simply try again — none of which was reachable from Go before.
 	ErrorEvent *AgentSessionErrorEvent `json:"error_event,omitempty"`
+}
+
+// IsReady reports whether the session's browser has finished starting: Ready,
+// or true when the server did not say (an older server, which does not hold
+// messages for a session that is still starting).
+func (s *AgentSession) IsReady() bool {
+	return s.Ready == nil || *s.Ready
 }
 
 // AgentSessionCapabilityReport is the latest report of what a session can do.
@@ -176,10 +196,12 @@ type CreateAgentSessionRequest struct {
 	Mode string `json:"mode,omitempty"`
 	// Model is the Claude model the AI runs. Empty string omits the field so
 	// the server applies its default ("claude-sonnet-5").
-	// Valid: "claude-opus-5" | "claude-sonnet-5" | "claude-opus-4-8" | "claude-opus-4-7" |
-	// "claude-sonnet-4-6" | "claude-haiku-4-5". Opus models run only on your
-	// own Anthropic key: when the session would run on Driftstack's included
-	// AI, Create returns a 403 *ForbiddenError whose RequiresOwnKey() is true.
+	// Valid: "claude-fable-5-1" | "claude-opus-5-5" | "claude-opus-5" |
+	// "claude-sonnet-5" | "claude-opus-4-8" | "claude-opus-4-7" |
+	// "claude-sonnet-4-6" | "claude-haiku-4-5". Opus models and Claude Fable
+	// 5.1 run only on your own Anthropic key: when the session would run on
+	// Driftstack's included AI, Create returns a 403 *ForbiddenError whose
+	// RequiresOwnKey() is true.
 	Model string `json:"model,omitempty"`
 	// Attach a saved profile (persistent browser identity) so the session
 	// resumes its stored state + saves back on end. Must be an owned profile id
@@ -276,7 +298,8 @@ type AgentMessageResponse struct {
 	ClarifyingQuestion string            `json:"clarifying_question,omitempty"`
 	// RefuseReason says why the agent will not do this. A refuse can also
 	// mean the AI was briefly unavailable; the session stays active and you
-	// can send the message again.
+	// can send the message again. When the refusal was not the agent's choice,
+	// NoticeReason says why in one word (see there).
 	RefuseReason string `json:"refuse_reason,omitempty"`
 	// Answer is the agent's answer to the question the turn asked, read back
 	// from the page; empty when the turn only acted (navigate, tap,
@@ -288,10 +311,11 @@ type AgentMessageResponse struct {
 	// asked for actions. Open text: show it, do not match on it.
 	AnswerUnavailable string `json:"answer_unavailable,omitempty"`
 	// Notice is set on a "plan-executed" turn that ended before the task was
-	// finished — it reached a limit on steps, time or budget, or stopped
-	// rather than repeat itself — or when the agent asked you something
-	// part-way through; when it asks for "continue", send that as the next
-	// message. On a "stopped" turn it is one sentence saying how far it got.
+	// finished — it reached a limit on steps, time or budget, stopped rather
+	// than repeat itself, or the browser in the session stopped responding —
+	// or when the agent asked you something part-way through; when it asks for
+	// "continue", send that as the next message. On a "stopped" turn it is one
+	// sentence saying how far it got.
 	Notice string `json:"notice,omitempty"`
 	// NoticeReason is the same ending as Notice, in one word to switch on. Set
 	// on a "plan-executed" turn whenever Notice is, and never without it:
@@ -303,10 +327,11 @@ type AgentMessageResponse struct {
 	//	"repeated_step"  the next step would repeat an action that already ran; check, then "continue"
 	//	"ai_unavailable" the next steps could not be worked out just now; send "continue" to try again
 	//	"page_unreadable" the page could not be read to plan the next step; send "continue" to try again
+	//	"session_unresponsive" the browser in this session stopped responding; end the session and launch a new one ("continue" will not help)
 	//	"question"       the agent asked you something part-way; Notice is the question, answer it
 	//	"declined"       the agent stopped rather than carry on; a person should decide
 	//
-	// Five say the session is PAUSED on the device, and nothing carries on until
+	// Five say the session is PAUSED, and nothing carries on until
 	// it is resumed (Resume, or the live view's Resume button):
 	//
 	//	"challenge_solver_pending"   a verification check was handed to your configured solver; when the page clears, resume and send "continue"
@@ -318,6 +343,13 @@ type AgentMessageResponse struct {
 	// The set is OPEN: a turn can end a way this SDK version has never heard
 	// of, so a default branch that shows Notice is required, not optional.
 	// Empty on older servers.
+	//
+	// On a "refuse" turn NoticeReason is set only when the refusal was not the
+	// agent's choice, and Notice is empty there (RefuseReason is the
+	// sentence): "session_unresponsive" — the browser in this session stopped
+	// responding before anything was planned, so nothing was done with the
+	// message; end the session and launch a new one. Empty on every other
+	// refusal.
 	NoticeReason string `json:"notice_reason,omitempty"`
 	// StoppedDuring is what a "stopped" turn was doing when it noticed the
 	// stop: "planning", "executing", "reading_page" or "answering".
@@ -328,9 +360,14 @@ type AgentMessageResponse struct {
 }
 
 // AgentIntent is one step the agent planned. Kind is "navigate", "interact",
-// "wait", "capture", "scroll" or "behavioral_pause"; only the fields for that
-// kind are set. The set of kinds is open: treat one you do not recognise as a
-// step you cannot describe, not as an error.
+// "wait", "capture", "scroll", "behavioral_pause", "back", "extract" or
+// "tap_at"; only the fields for that kind are set. The set of kinds is open:
+// treat one you do not recognise as a step you cannot describe, not as an
+// error.
+//
+// AgentIntent cannot be compared with == or used as a map key, because Frame
+// is a slice: compare the fields you need (slices.Equal for Frame), or whole
+// values with reflect.DeepEqual.
 type AgentIntent struct {
 	Kind string `json:"kind"`
 	// navigate
@@ -347,20 +384,40 @@ type AgentIntent struct {
 	TimeoutMs *int   `json:"timeoutMs,omitempty"`
 	// capture: "screenshot" | "dom_snapshot" | "pdf".
 	Capture string `json:"capture,omitempty"`
+	// Frame, only on a "dom_snapshot" capture or a whole-page "extract"
+	// (Body true, no Selector): the embedded document (an iframe) that was read
+	// instead of the page, as a path of positions — its place among the page's
+	// frames, then its place inside that frame for a nested one, outermost
+	// first. Positions follow the order the browser created the frames, which
+	// is not always the order of the iframe tags in the markup. Empty: the page
+	// itself.
+	Frame []int `json:"frame,omitempty"`
 	// scroll: Direction is "up" | "down".
 	Direction string `json:"direction,omitempty"`
 	AmountPx  *int   `json:"amount_px,omitempty"`
 	// behavioral_pause
 	DurationMs       *int `json:"duration_ms,omitempty"`
 	ReadingWordCount *int `json:"reading_word_count,omitempty"`
+	// extract: the text of one element (Selector) or of the whole page (Body
+	// true) — exactly one of the two.
+	Body bool `json:"body,omitempty"`
+	// tap_at: the point tapped, in viewport pixels from the top-left corner.
+	X *int `json:"x,omitempty"`
+	Y *int `json:"y,omitempty"`
 }
 
 // AgentFailureDiagnosis is the machine-readable companion to a failed step's
 // Reason. Category is an open set ("element_not_found", "page_load_failed",
 // "condition_not_met", "capture_failed", "scroll_failed", "session_error",
 // "invalid_request", "result_too_large", "element_covered",
-// "target_unverified", "unknown", and more over time): treat a value you do
-// not recognise as "unknown". Retryable true means replaying the same step
+// "target_unverified", "credential_site_not_allowed", "session_unresponsive",
+// "unknown", and more over time): treat a value you do not recognise as
+// "unknown".
+// "credential_site_not_allowed" means a saved credential was not typed because
+// the page was not an https:// page on a website the credential is saved for.
+// "session_unresponsive" means the browser in this session stopped responding,
+// so the step was not sent; it is never retryable — end the session and launch
+// a new one. Retryable true means replaying the same step
 // automatically is safe; false means never auto-replay — the request may need
 // correcting, or the step's outcome is unknown and the page must be checked.
 type AgentFailureDiagnosis struct {
@@ -388,7 +445,8 @@ type AgentStepWarning struct {
 // an account deletion and is waiting for your approval (Category,
 // MatchedText). Approve it by sending the next message with
 // ApproveConsequentialActions: []ConsequentialActionApproval{ApprovalFor(r)}.
-// Kind and Category are open sets.
+// Kind and Category are open sets. It holds an AgentIntent, so like that type
+// it cannot be compared with == or used as a map key.
 type AgentIntentResult struct {
 	Kind        string                 `json:"kind"`
 	Intent      AgentIntent            `json:"intent"`
@@ -435,7 +493,8 @@ func ApprovalFor(res AgentIntentResult) ConsequentialActionApproval {
 }
 
 // AgentStepEvent is one step as it lands on a turn's stream: Index is the
-// step's 0-based position in the final Results.
+// step's 0-based position in the final Results. It holds an AgentIntentResult,
+// so like that type it cannot be compared with == or used as a map key.
 type AgentStepEvent struct {
 	Index  int               `json:"index"`
 	Result AgentIntentResult `json:"result"`
@@ -890,7 +949,7 @@ func (r *AgentSessionsResource) LivekitToken(ctx context.Context, agentSessionID
 // AgentSessionEgressResult is the discriminated result of an egress
 // swap. Only Status "ok" means the egress changed; every other
 // status leaves the session exactly as it was, with Reason saying why.
-// ApplyPoint is present on success and is nil when the device accepted
+// ApplyPoint is present on success and is nil when the session accepted
 // the swap without confirming when it takes effect — treat nil as
 // possibly-immediate.
 type AgentSessionEgressResult struct {
@@ -902,7 +961,7 @@ type AgentSessionEgressResult struct {
 // SetEgress moves a RUNNING session onto a different egress without
 // restarting it.
 //
-// NOT AVAILABLE YET: no device can change egress on a running session,
+// NOT AVAILABLE YET: no session can change egress while it is running,
 // so this currently returns Status "unavailable" for every call —
 // create a new session with the proxyID you want instead. It is not in
 // the API reference until it works. The shapes are stable and will not
@@ -913,7 +972,7 @@ type AgentSessionEgressResult struct {
 //
 // proxyID must be a proxy on your own account that has been tested at
 // least once: the swap carries the exit's MEASURED identity — IP,
-// country, timezone — to the device so the page keeps seeing a
+// country, timezone — to the session so the page keeps seeing a
 // consistent origin. An untested proxy has no measured identity to
 // carry, and the response is status "unavailable" rather than a
 // guessed one.

@@ -114,8 +114,8 @@ type AccountProxyMetadata struct {
 	// can set it too, so it does not say whether the proxy works where sessions
 	// run: read FullCheckOk for that.
 	ExitSupersededAt *string `json:"exit_superseded_at"`
-	// FullCheckOk is the result of the last ?check=full test a phone measured
-	// (measured_by "phone"): true = the proxy was usable, false = the check
+	// FullCheckOk is the result of the last ?check=full test measured where
+	// sessions run (measured_by "phone"): true = the proxy was usable, false = the check
 	// finished and the proxy was not usable, nil = no such check since the proxy's
 	// address, scheme or credentials last changed. FullCheckAt is when it was
 	// measured (RFC 3339), or nil. Nothing else sets them: not a quick check,
@@ -181,10 +181,11 @@ type AccountProxyTestResult struct {
 	// MeasuredBy is documented from here on.
 	MeasuredFrom *string `json:"measured_from,omitempty"`
 	// MeasuredBy is the customer-worded name for MeasuredFrom above: "phone"
-	// (a real phone session took the measurement — what `?check=full` asks
-	// for) or "driftstack" (Driftstack itself measured it — the same path
+	// (one of the machines that run sessions took the measurement — what
+	// `?check=full` asks for; the value keeps its original name) or
+	// "driftstack" (Driftstack itself measured it — the same path
 	// `?check=quick` always takes, and the honest fallback when a
-	// `?check=full` request could not reach a phone in time). Present only
+	// `?check=full` request could not reach that machine in time). Present only
 	// on a `?check=full` result; `?check=quick` is always "driftstack" and
 	// carries no field to say so.
 	MeasuredBy *string `json:"measured_by,omitempty"`
@@ -238,13 +239,12 @@ type AccountProxyOsFingerprint struct {
 	WebsiteLikeReading bool `json:"website_like_reading,omitempty"`
 }
 
-// AttachToSession sets the proxy config for a session. The body's
-// SessionID MUST match the URL sessionID or the server rejects with
-// 400.
+// AttachToSession sets the proxy config for a session.
 //
-// NOT AVAILABLE YET: every deployment answers 503, and neither this nor
-// GetSessionProxy is in the API reference until they work. Pass a proxy_id
-// when you create the session instead.
+// Deprecated: RETIRED. Every deployment answers 410 (*FeatureUnavailableError,
+// code "endpoint_retired") and reads nothing you send: a proxy cannot be set
+// on an existing session. Set ProxyID when you create the session, with
+// Sessions.Create or AgentSessions.Create.
 func (r *EgressResource) AttachToSession(ctx context.Context, sessionID string, config *SessionEgressConfig) (*SessionProxyAttachResponse, error) {
 	var out SessionProxyAttachResponse
 	if err := r.client.do(ctx, requestOptions{
@@ -259,9 +259,9 @@ func (r *EgressResource) AttachToSession(ctx context.Context, sessionID string, 
 }
 
 // GetSessionProxy reads the session's current proxy summary.
-// Returns NotFound (404) if no proxy has been attached.
 //
-// NOT AVAILABLE YET: every deployment answers 404.
+// Deprecated: RETIRED. Every deployment answers 410, like AttachToSession. A
+// session's proxy is the ProxyID it was created with.
 func (r *EgressResource) GetSessionProxy(ctx context.Context, sessionID string) (*SessionProxyAttachResponse, error) {
 	var out SessionProxyAttachResponse
 	if err := r.client.do(ctx, requestOptions{

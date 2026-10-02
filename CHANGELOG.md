@@ -6,6 +6,121 @@ follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added (2026-10-02)
+
+- **Two more agent-session models: `"claude-fable-5-1"` (Claude Fable 5.1) and
+  `"claude-opus-5-5"` (Claude Opus 5.5).** Both run only on your own Anthropic
+  key, like every Opus model: when a session would run on Driftstack's included
+  AI, `Create` (and every message) returns a 403 `*ForbiddenError` whose
+  `RequiresOwnKey()` is true. The default model is unchanged
+  (`"claude-sonnet-5"`).
+
+- **`CreateSessionRequest.ProxyID` and `LaunchProfileRequest.ProxyID`.** The
+  id of one of your saved proxies; the session's traffic goes out through it.
+  Hosted Driftstack runs every session through a proxy of yours, so a create
+  without one is refused with a 422 `*ProxyRequiredError` (from a profile
+  bound to a proxy, that proxy is used when `ProxyID` is empty). A session
+  started with a `ProxyID` cannot run the step-by-step operations (Navigate,
+  Interact, Capture, ...) yet: they answer 503 and leave the session ready.
+  It ends, and reads `destroyed`, when its agent session is closed or it stops
+  on its own (30 minutes without activity, or its time limit).
+
+### Changed (2026-10-02)
+
+- **`AccountResource.ListCredentials` follows the team workspace.** With
+  `WithEffectiveAccount`, a team member of either role lists the account
+  owner's saved credentials — the ones agent tasks in that workspace use — as
+  the same fields (`Handle`, `Label`, `Sites`, `IncludeSubdomains`,
+  `CreatedAt`), never a value. Without it, nothing changes: your own. A
+  workspace you are not a member of answers 403.
+
+### Deprecated (2026-10-02)
+
+- **`Egress.AttachToSession` and `Egress.GetSessionProxy`.** The server retired
+  `/v1/sessions/:id/proxy`: both answer 410 (`*FeatureUnavailableError`, code
+  `endpoint_retired`) on every deployment. Set `ProxyID` when you create the
+  session.
+
+### Added (2026-10-01)
+
+- **`AgentSession.Ready` (`*bool`), `ReadyAt` and `AgentSession.IsReady()`.**
+  `Status` reads `"active"` from the moment a session is created; `Ready` turns
+  true once the session reports that its browser has finished
+  starting, and `ReadyAt` says when. Wait for `IsReady()` before sending the
+  first message. A session on a VPN can take longer to become ready. A session
+  that closes while `Ready` is false failed to start; `ClosedReason` says why.
+  `Ready` is nil from an older server, which does not hold messages either;
+  `IsReady()` reads nil as ready.
+- **`SessionNotReadyError`** and **`ErrSessionNotReady`** (HTTP 409, type
+  `https://errors.driftstack.dev/session-not-ready`; `errors.Is` also matches
+  `ErrConflict`). A message sent before the session is ready waits for it, for
+  up to 45 seconds on the streamed response (20 seconds on a JSON one); if it is
+  still starting then, nothing ran and the message is
+  refused with this error. `IsRetryable` returns true; `RetryAfterSeconds` says
+  how long to wait, and the same idempotency key is safe to reuse.
+- **`AgentIntent.Frame` (`[]int`) on a read step.** A step with `Kind`
+  `"capture"` and `Capture` `"dom_snapshot"`, and one with `Kind` `"extract"`
+  and `Body` true, can now carry `Frame`: the embedded document (an iframe) the
+  step read instead of the page, as a path of positions — the frame's position
+  among the page's frames, then its position inside that frame for a nested
+  one, outermost first (`[0]`, `[0, 1]`). Each position is 0 to 512, and a path
+  is 1 to 8 levels deep. Frames are numbered by the session's own frame list, in
+  the order the browser created them, which is not always the order of the
+  iframe tags in the markup. `Frame` is only for reading: it is set only on
+  those two reads, never on a screenshot, a PDF, an `"extract"` by selector or
+  a step that taps, types or waits, so no step can name a frame to tap or type
+  into. A `"tap_at"` step taps a point on the screen, and that point can be
+  inside a frame. Empty means the step read the page itself. You see it in the steps a turn
+  reports (`ParsedIntents()`, and each result's `Intent`), in a transcript
+  entry's `Intents` and in a recipe's `IntentLog`. `Frame` is a slice, so
+  `AgentIntent` and the two types that hold one can no longer be compared with
+  `==`: see **Migration** below.
+- **`AgentIntent.Body` (`bool`), `X` and `Y` (`*int`).** An `"extract"` step
+  reads the text of one element (`Selector`) or of the whole page (`Body`
+  true); a `"tap_at"` step taps the point `X`, `Y`, in viewport pixels from the
+  top-left corner. The API already returned these steps; their fields are now
+  decoded instead of dropped. Additive.
+
+### Added
+
+- **`"session_unresponsive"`** joins the `Diagnosis.Category` values and the
+  `NoticeReason` values. The browser in the session stopped responding: it had already failed to answer, and a quick check sent just before the next step got no answer either, so that step was not sent. The step fails
+  with `Diagnosis.Category` `"session_unresponsive"` and `Retryable` false, and
+  the turn stops there with `NoticeReason` `"session_unresponsive"`; a turn that
+  hit it before planning anything answers `Kind` `"refuse"` with the same
+  `NoticeReason` `"session_unresponsive"`. **What to do:** end
+  the session and launch a new one — sending "continue" will not help. If the
+  browser answers the check again, steps run as normal. Both fields are plain
+  strings, so nothing changes in the types.
+- **`AccountResource.ListCredentials`** — `GET /v1/account/me/credentials`:
+  the `Handle`, `Label`, `Sites`, `IncludeSubdomains` and `CreatedAt` of each
+  saved credential on the account, never the value. Write a handle into an
+  agent task as `{{credential:<handle>}}`, as the text of a type step. Each
+  credential is locked to its `Sites`: a step types it only on an `https://`
+  page on one of them, and is refused elsewhere with
+  `Diagnosis.Category` `"credential_site_not_allowed"`. Saving and deleting a
+  credential are done in the dashboard.
+
+### Migration (2026-10-01)
+
+`AgentIntent` gained `Frame`, a slice, and a Go struct that holds a slice
+cannot be compared with `==` or `!=` or used as a map key. Three types lost
+that:
+
+- **`AgentIntent`**, which holds `Frame` (`[]int`).
+- **`AgentIntentResult`**, which holds an `AgentIntent` in `Intent`.
+- **`AgentStepEvent`**, which holds an `AgentIntentResult` in `Result`.
+
+A program that compares two of these with `==` or `!=`, uses one as a map key,
+or passes one as a `comparable` type argument no longer compiles, and the
+compiler names each such line ("cannot be compared", "invalid map key type",
+"does not satisfy comparable"). Nothing changes at run time, and a program that
+does none of these needs no change. To fix one, compare the fields you need
+(`a.Kind == b.Kind && a.Selector == b.Selector`), compare two frames with
+`slices.Equal(a.Frame, b.Frame)`, or compare whole values with
+`reflect.DeepEqual(a, b)`; key a map by a field, or by a string you build from
+the fields, instead of by the struct.
+
 ## [0.5.0] - 2026-09-30
 
 **Breaking: the module now covers what a program needs to run Driftstack, and

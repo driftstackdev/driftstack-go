@@ -551,3 +551,26 @@ func TestAgentSessions_Iterate_ThreadsNextCursor(t *testing.T) {
 		t.Errorf("cursor handoff: got %v, want [\"\" \"cur_2\"]", seenCursor)
 	}
 }
+
+func TestAgentSessionIsReadyReadsAnAbsentFieldAsReady(t *testing.T) {
+	t.Parallel()
+	// A server that sends `ready` decides it; an older server that sends no
+	// `ready` holds no message either, so the session reads as ready.
+	cases := []struct {
+		body string
+		want bool
+	}{
+		{`{"id":"agt_1","status":"active","ready":false,"ready_at":null}`, false},
+		{`{"id":"agt_1","status":"active","ready":true,"ready_at":"2026-10-01T12:00:00.000Z"}`, true},
+		{`{"id":"agt_1","status":"active"}`, true},
+	}
+	for _, c := range cases {
+		var s AgentSession
+		if err := json.Unmarshal([]byte(c.body), &s); err != nil {
+			t.Fatalf("unmarshal %s: %v", c.body, err)
+		}
+		if got := s.IsReady(); got != c.want {
+			t.Errorf("IsReady() for %s = %v, want %v", c.body, got, c.want)
+		}
+	}
+}

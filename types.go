@@ -264,6 +264,11 @@ type CreateSessionRequest struct {
 	ProfileID string `json:"profile_id,omitempty"`
 	// BehavioralProfile selects the per-session persona (2026-06-05).
 	BehavioralProfile BehavioralProfile `json:"behavioral_profile,omitempty"`
+	// ProxyID is the id of one of your saved proxies; the session's traffic
+	// goes out through it (2026-10-02). A deployment that requires a proxy of
+	// your own refuses a create without one with a 422 *ProxyRequiredError;
+	// from a profile bound to a proxy, that proxy is used when this is empty.
+	ProxyID string `json:"proxy_id,omitempty"`
 }
 
 // CreateSessionResponse mirrors the server's POST /v1/sessions
@@ -748,8 +753,8 @@ type Profile struct {
 	// (nil/empty = monogram); Note = short inline annotation.
 	Icon *string `json:"icon"`
 	Note *string `json:"note"`
-	// Notes — the free-text notes kept with the profile (the desktop app's
-	// Simulator "Notes" section): plain text, UTF-8, at most 16 KiB. nil until
+	// Notes — the free-text notes kept with the profile (the "Notes" section
+	// of the desktop app's session window): plain text, UTF-8, at most 16 KiB. nil until
 	// something is written. Anyone who launches the profile sees the same notes.
 	Notes *string `json:"notes"`
 	// DefaultProxyID / ProxyChoice — the saved proxy this profile launches

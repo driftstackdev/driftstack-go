@@ -5,12 +5,16 @@ import (
 )
 
 // AccountResource holds the account reads a program needs: Whoami (which
-// account, key, tier and scopes an API key has), RateLimits and
-// GetBundledLlmStatus. Me is deprecated.
+// account, key, tier and scopes an API key has), RateLimits,
+// GetBundledLlmStatus and ListCredentials (the handles of the account's saved
+// credentials). Me is deprecated.
 //
 // Everything else about the account — the profile, avatar, sign-ins, MFA, API
 // keys, team, billing, notification settings and the AI settings — is managed
-// in the Driftstack dashboard and is not part of the public API.
+// in the Driftstack dashboard and is not part of the public API. Saving and
+// deleting a credential belongs to that list too: a person types the value in
+// the dashboard. Only the list is here, because a program needs the handle to
+// write a placeholder.
 type AccountResource struct {
 	client *Client
 }
@@ -152,6 +156,45 @@ func (r *AccountResource) GetBundledLlmStatus(ctx context.Context) (*BundledLlmS
 	if err := r.client.do(ctx, requestOptions{
 		method: "GET",
 		path:   "/v1/account/me/bundled-llm-status",
+		out:    &out,
+	}); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// AccountCredential — one saved credential: the handle a task refers to it by,
+// the label it was saved under, and the websites it may be typed on. There is
+// no field for the value: no endpoint returns a saved value.
+//
+// Sites is the credential's lock, like a password manager entry: a step types
+// it only on an https:// page whose host is one of Sites (or a subdomain of
+// one when IncludeSubdomains is true), and is refused anywhere else.
+type AccountCredential struct {
+	Handle            string   `json:"handle"`             // cred_<32 hex>
+	Label             string   `json:"label"`              // the customer's own words for it
+	Sites             []string `json:"sites"`              // host names, e.g. "shop.example.com"
+	IncludeSubdomains bool     `json:"include_subdomains"` // subdomains of Sites match too
+	CreatedAt         string   `json:"created_at"`         // ISO instant
+}
+
+// ListAccountCredentialsResponse — GET /v1/account/me/credentials.
+type ListAccountCredentialsResponse struct {
+	Data []AccountCredential `json:"data"`
+}
+
+// ListCredentials — GET /v1/account/me/credentials. The account's saved
+// credentials: handles, labels and websites, never the values. Write a handle into an
+// agent task as {{credential:<handle>}}, as the text of a type step.
+// Credentials are saved and deleted in the Driftstack dashboard, by the account
+// owner. With WithEffectiveAccount (a team workspace), a member of either role
+// lists the owner's saved credentials — the ones agent tasks in that workspace
+// use — as the same fields, never a value.
+func (r *AccountResource) ListCredentials(ctx context.Context) (*ListAccountCredentialsResponse, error) {
+	var out ListAccountCredentialsResponse
+	if err := r.client.do(ctx, requestOptions{
+		method: "GET",
+		path:   "/v1/account/me/credentials",
 		out:    &out,
 	}); err != nil {
 		return nil, err

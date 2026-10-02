@@ -88,7 +88,7 @@ var (
 	ErrProxyValidationFailed = errors.New("proxy validation failed")
 	// Single-active-session-per-profile guard (409 at launch).
 	ErrProfileInUse = errors.New("profile already in use")
-	// Too large for the endpoint or for the session's device (413).
+	// Too large for the endpoint or for the session (413).
 	ErrPayloadTooLarge = errors.New("payload too large")
 	// The profile's device is not offered right now (409 at launch).
 	ErrDeviceUnavailable = errors.New("device unavailable")
@@ -100,6 +100,8 @@ var (
 	ErrAiCreditsExhausted = errors.New("ai credits exhausted")
 	// The account's trial is over; sessions start again once it subscribes (402).
 	ErrTrialEnded = errors.New("trial ended")
+	// The agent session's browser is still starting (409, retryable).
+	ErrSessionNotReady = errors.New("session not ready")
 )
 
 // AuthError covers any of the auth-related problem types. Use the
@@ -130,10 +132,10 @@ type ForbiddenError struct{ apiError }
 
 func (e *ForbiddenError) Is(target error) bool { return target == ErrForbidden || target == ErrAuth }
 
-// RequiresOwnKey reports whether an Opus-class model was refused because it
-// runs only on your own Anthropic key and the session or turn would have run
-// on Driftstack's included AI. Add a key (stored, or ByokAPIKey on the call)
-// or pick another model. False for every other 403.
+// RequiresOwnKey reports whether an Opus-class model (or Claude Fable 5.1) was
+// refused because it runs only on your own Anthropic key and the session or
+// turn would have run on Driftstack's included AI. Add a key (stored, or
+// ByokAPIKey on the call) or pick another model. False for every other 403.
 func (e *ForbiddenError) RequiresOwnKey() bool {
 	v, _ := e.Problem["requires_own_key"].(bool)
 	return v
@@ -407,10 +409,29 @@ func (e *DeviceUnavailableError) Is(target error) bool {
 	return target == ErrDeviceUnavailable || target == ErrConflict
 }
 
+// SessionNotReadyError — 409. A message reached an agent session whose browser
+// is still starting: it has not yet reported ready (the session's Ready is
+// still false). The server held the message for a while
+// first; nothing ran. Retryable: send the same message again after
+// RetryAfterSeconds (the same Idempotency-Key is safe to reuse), or wait for
+// Get to report Ready before sending. A VPN session can take longer to become
+// ready. Code is "session_not_ready"; Retryable is true (nothing ran).
+// errors.Is matches both ErrSessionNotReady and the broader ErrConflict.
+type SessionNotReadyError struct {
+	apiError
+	Code              string
+	Retryable         bool
+	RetryAfterSeconds int
+}
+
+func (e *SessionNotReadyError) Is(target error) bool {
+	return target == ErrSessionNotReady || target == ErrConflict
+}
+
 // PayloadTooLargeError — 413. The request is too large for where it has to
 // go, and nothing was sent there: a body over the endpoint's size limit, or a
-// file or cookie jar larger than the device running the session takes at
-// once. When the device is the limit, LimitBytes is the most that fits and
+// file or cookie jar larger than the session takes at once. When the
+// session is the limit, LimitBytes is the most that fits and
 // SizeBytes what was sent; both are 0 otherwise. For uploads, check a file
 // against the session's UploadMaxFileBytes first. errors.Is matches both
 // ErrPayloadTooLarge and ErrBadRequest (a 413 used to arrive as bad-request).
@@ -634,7 +655,7 @@ func (e *BundledLlmConsentRequiredError) Is(target error) bool {
 // AiCreditsExhaustedError — 402: an AI turn could not run on the account's AI
 // credits. Nothing ran. Reason tells the three shapes apart:
 //
-//   - "balance" — the credits the plan (or the trial) includes are used up;
+//   - "balance" — the credits the plan includes are used up;
 //     AvailableCredits / RequiredCredits say how far short. ResetsAt, when
 //     non-empty, is when the next credits arrive.
 //   - "debt" — AI is paused on the account (DebtReason "payment_reversed" or
@@ -691,7 +712,9 @@ func (e *PairModeStateInvalidTransitionError) Is(target error) bool {
 // Python implementations. Returns true when err is a Driftstack
 // error whose kind is retryable; false otherwise.
 //
-// Retryable: TransportError, InternalError, RateLimitError.
+// Retryable: TransportError, InternalError, RateLimitError,
+// SessionNotReadyError (the agent session's browser is still starting and
+// nothing ran; wait RetryAfterSeconds, then send again).
 // NOT retryable: ValidationError, AuthError, NotFoundError,
 // ConflictError, ConcurrencyLimitError, all auth-flow errors,
 // FeatureUnavailableError, MfaStepUpRequiredError.
@@ -733,6 +756,10 @@ func IsRetryable(err error) bool {
 	}
 	var rateLimit *RateLimitError
 	if errors.As(err, &rateLimit) {
+		return true
+	}
+	var notReady *SessionNotReadyError
+	if errors.As(err, &notReady) {
 		return true
 	}
 	return false

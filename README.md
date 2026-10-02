@@ -1,6 +1,6 @@
 # Driftstack Go SDK
 
-Stealth iPhone Safari automation, called from Go. Single-package, zero non-stdlib runtime dependencies, context-aware throughout.
+iPhone Safari browser automation, called from Go. Single-package, zero non-stdlib runtime dependencies, context-aware throughout.
 
 > **Status:** published as a tagged pre-1.0 module. Commit `go.mod` and `go.sum` for reproducible deployments.
 
@@ -31,9 +31,9 @@ the build reproducible, so there is nothing further to pin.
 
 ## Quickstart
 
-An agent session is a cloud iPhone browser that an AI drives for you. Every
-agent session goes out through one of your saved proxies, so the create names
-its id (list them with `client.Egress.ListProxies`, using a key with the
+An agent session is an iPhone Safari browser in the cloud that an AI drives
+for you. Every agent session goes out through one of your saved proxies, so
+the create names its id (list them with `client.Egress.ListProxies`, using a key with the
 `account_owner` scope).
 
 ```go
@@ -90,7 +90,7 @@ The endpoints a program calls are typed methods on resource accessors. All take 
 | `client.Sessions`         | `Create`, `List`, `Iterate`, `Get`, `Navigate`, `Interact`, `Wait`, `GetState`, `Capture`, `Extract`, `Destroy`; `Search` and `Login` are not available yet                                                     |
 | `client.AgentSessions`    | `Create`, `Get`, `List`, `Iterate`, `Message`, `GetCapture`, `Transcript`, `Stop`, `Close`, `LivekitToken`, `Resume`; `SetEgress` is not available yet (run AI tasks in a browser — see "Run an AI task" below) |
 | `client.Archetypes`       | `List` (the device + iOS + Safari combinations you can choose from)                                                                                                                                             |
-| `client.Egress`           | `ListProxies`, `CreateProxy`, `UpdateProxy`, `DeleteProxy`, `TestProxy` (reusable proxy CRUD); `AttachToSession` and `GetSessionProxy` are not available yet                                                    |
+| `client.Egress`           | `ListProxies`, `CreateProxy`, `UpdateProxy`, `DeleteProxy`, `TestProxy` (reusable proxy CRUD); `AttachToSession` and `GetSessionProxy` are retired (they answer 410; set the proxy when you create the session) |
 | `client.Profiles`         | `Create`, `List`, `Iterate`, `Get`, `Update`, `Delete`, `ListTrash`, `Restore`, `Purge`, `Launch`, `Clone`, `Export`, `Import`, `Trim`, `Activity`                                                              |
 | `client.ProfileSnapshots` | `Capture`, `ListForProfile`, `List`, `Iterate`, `Get`, `Restore`, `Delete`                                                                                                                                      |
 | `client.Recipes`          | `Create`, `List`, `Iterate`, `Get`, `Delete`, `Suggest` (snapshot and manage an agent-session's intent_log; no execute method)                                                                                  |

@@ -174,3 +174,34 @@ func TestAccount_RateLimits(t *testing.T) {
 		t.Errorf("override_expires_at should decode as nil, got %v", *out.Buckets[0].OverrideExpiresAt)
 	}
 }
+
+func TestAccount_ListCredentials(t *testing.T) {
+	t.Parallel()
+	var method, path string
+	_, client := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		method, path = r.Method, r.URL.Path
+		w.Header().Set("content-type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]any{{
+				"handle":             "cred_9f2c41ab7d6e4850bc13f07a5e9d2c88",
+				"label":              "Shop password",
+				"sites":              []string{"shop.example.com"},
+				"include_subdomains": true,
+				"created_at":         "2026-10-01T09:14:22.000Z",
+			}},
+		})
+	})
+	out, err := client.Account.ListCredentials(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if method != "GET" || path != "/v1/account/me/credentials" {
+		t.Errorf("got %s %s, want GET /v1/account/me/credentials", method, path)
+	}
+	if len(out.Data) != 1 || out.Data[0].Handle != "cred_9f2c41ab7d6e4850bc13f07a5e9d2c88" ||
+		out.Data[0].Label != "Shop password" || out.Data[0].CreatedAt != "2026-10-01T09:14:22.000Z" ||
+		len(out.Data[0].Sites) != 1 || out.Data[0].Sites[0] != "shop.example.com" ||
+		!out.Data[0].IncludeSubdomains {
+		t.Fatalf("out = %+v", out)
+	}
+}

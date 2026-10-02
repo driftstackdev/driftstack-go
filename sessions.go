@@ -13,10 +13,12 @@ type SessionsResource struct {
 
 // Create makes a new session. Pass nil for default options.
 //
-// This endpoint cannot run a session through a proxy, so a deployment that
-// requires a customer proxy refuses it with a 422 *ProxyRequiredError. To run a
-// session through one of your saved proxies, create it with AgentSessions.Create
-// and a ProxyID.
+// Set ProxyID to run the session through one of your saved proxies; a
+// deployment that requires a proxy of your own refuses a create without one
+// with a 422 *ProxyRequiredError. A session started with a ProxyID cannot run
+// the step-by-step operations (Navigate, Interact, Capture, ...) yet: they
+// answer 503 and leave it ready. On a deployment that cannot carry a proxy
+// here, create it with AgentSessions.Create and a ProxyID.
 func (r *SessionsResource) Create(ctx context.Context, body *CreateSessionRequest) (*Session, error) {
 	var out Session
 	if body == nil {

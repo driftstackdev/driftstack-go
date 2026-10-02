@@ -1,5 +1,5 @@
 // Package driftstack is the official Go SDK for the Driftstack API —
-// stealth iPhone Safari automation, called from Go.
+// iPhone Safari browser automation, called from Go.
 //
 // Quickstart:
 //

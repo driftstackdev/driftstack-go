@@ -170,17 +170,18 @@ func (r *ProfilesResource) Purge(ctx context.Context, profileID string) error {
 // the profile (archetype + metadata + last_used_at bumped
 // server-side).
 //
-// Per-session customer-configurable egress is NOT available on this
-// resource yet -- /v1/sessions's execution backend has no driver-layer
-// proxy plumbing today, so this struct used to carry a Proxy field that
-// silently did nothing; it has been removed so setting one is a compile
-// error instead of a no-op. A deployment that requires a customer proxy
-// refuses this launch with a 422 *ProxyRequiredError. To launch the profile
-// through one of your saved proxies, use AgentSessionsResource.Create, setting
-// ProfileID and ProxyID -- that resource dispatches to a real device and routes
-// traffic through the saved proxy you name.
+// ProxyID (2026-10-02) is the id of one of your saved proxies, the same one
+// CreateSessionRequest takes; empty, the launch uses the proxy the profile is
+// bound to. A deployment that requires a proxy of your own refuses a launch
+// with neither with a 422 *ProxyRequiredError. This struct once carried a raw
+// Proxy field that silently did nothing; it stays removed, so setting one is a
+// compile error instead of a no-op. On a deployment that cannot carry a proxy
+// here, use AgentSessionsResource.Create, setting ProfileID and ProxyID -- that
+// resource starts an iPhone Safari session and routes its traffic through the
+// saved proxy you name.
 type LaunchProfileRequest struct {
-	Label string `json:"label,omitempty"`
+	Label   string `json:"label,omitempty"`
+	ProxyID string `json:"proxy_id,omitempty"`
 }
 
 // Launch creates a session bound to this profile. Equivalent to
@@ -300,11 +301,12 @@ func (r *ProfilesResource) Import(ctx context.Context, body *ImportProfileReques
 // ALWAYS returns HTTP 200; branch on Status, never the HTTP code:
 //   - "ok"          → caches cleared; BytesReclaimed freed, SizeBytes is the new
 //     (smaller) sealed-store size persisted server-side.
-//   - "unavailable" → nothing to trim (fresh profile or no connected
-//     storage-capable device). Reason is human-readable. Not an error.
-//   - "timeout"     → the device running the session did not respond in time.
-//     Safe to retry.
-//   - "error"       → the device reported a failure; the stored blob is untouched.
+//   - "unavailable" → nothing to trim (fresh profile, or no machine free to run
+//     the trim). Reason is human-readable. Not an error.
+//   - "timeout"     → the machine running the trim did not respond in time. Safe
+//     to retry.
+//   - "error"       → that machine reported a failure; the stored blob is
+//     untouched.
 //
 // SizeBytes / BytesReclaimed are present only on "ok"; Reason only on
 // "unavailable" / "error" — hence omitempty on all three.
@@ -354,8 +356,8 @@ type ProfileActivityResponse struct {
 
 // Activity returns the profile's recent navigation, projected from the
 // account's agent session transcripts. This is ACCOUNT ACTIVITY, not browsing
-// history: Trim with scope "history" clears the profile's open tabs on the
-// device and does not remove these rows.
+// history: Trim with scope "history" clears the profile's open tabs in the
+// session and does not remove these rows.
 func (r *ProfilesResource) Activity(ctx context.Context, profileID string) (*ProfileActivityResponse, error) {
 	var out ProfileActivityResponse
 	if err := r.client.do(ctx, requestOptions{
