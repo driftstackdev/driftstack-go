@@ -284,8 +284,12 @@ type AgentUsage struct {
 // mean the task is finished. It is false when a step failed (a tap that changed
 // nothing on the page is a failed step, Diagnosis.Category "no_effect"), when a
 // step is waiting for approval, and whenever NoticeReason is "no_progress" —
-// the turn stopped because nothing was changing, so it did not succeed. Read
-// typed steps with ParsedResults.
+// the turn stopped because nothing was changing, so it did not succeed. A
+// planned step that would have acted on the page but could not be sent is a
+// failed step too (Diagnosis.Category "invalid_request"), and OK stays false
+// after it unless a later step acts on the page: a screenshot, a read or a
+// pause after it does not make up for it, so the last entry of Results can
+// then be a success. Read typed steps with ParsedResults.
 type AgentMessageResponse struct {
 	Kind    string       `json:"kind"`
 	Session AgentSession `json:"session"`
