@@ -1091,3 +1091,101 @@ func (r *AgentSessionsResource) Stop(ctx context.Context, agentSessionID string)
 	}
 	return &out, nil
 }
+
+// AgentSessionSecret is a secret registered for one agent session with
+// RegisterSecret. No field holds the value: it is write-only, and Driftstack
+// puts it only into the step that types it.
+type AgentSessionSecret struct {
+	// Handle is "sec_<32 hex>". Write {{credential:<handle>}} in a message to
+	// this session as the whole value of a step that types it.
+	Handle string `json:"handle"`
+	Label  string `json:"label"`
+	// Sites are the websites it may be typed on (https:// pages on these hosts only).
+	Sites             []string `json:"sites"`
+	IncludeSubdomains bool     `json:"include_subdomains"`
+	CreatedAt         string   `json:"created_at"`
+	// ExpiresAt is when its time limit runs out: from then on it is never typed
+	// or listed.
+	ExpiresAt string `json:"expires_at"`
+}
+
+// RegisterAgentSessionSecretRequest is the body of RegisterSecret.
+type RegisterAgentSessionSecretRequest struct {
+	// Label is your own words for it, 1-120 characters. It is named in place of
+	// the value when a step that would type it is refused, in a sentence the
+	// model also reads, so put nothing secret in it.
+	Label string `json:"label"`
+	// Secret is the value: a password, a one-time code or a payment card
+	// number, 1-4096 bytes of UTF-8.
+	Secret string `json:"secret"`
+	// Sites are 1-10 host names it may be typed on, such as "shop.example.com".
+	Sites []string `json:"sites"`
+	// IncludeSubdomains also allows subdomains of each site. Defaults to false.
+	IncludeSubdomains *bool `json:"include_subdomains,omitempty"`
+	// TTLSeconds is how long it may be typed, 60-86400. Defaults to 3600. One a
+	// step has typed, or tried to, is kept past it, never typed again, until the
+	// session ends, so it can still be hidden from the model.
+	TTLSeconds *int `json:"ttl_seconds,omitempty"`
+}
+
+// RegisterSecret holds a value — a password, a one-time code or a payment card
+// number — for this session only, and returns the handle to type it by: write
+// {{credential:<handle>}} in a Message as the whole value of the step that
+// types it. The value is put into the step only as it is sent to the browser,
+// so the plan, the transcript and every response carry the handle, and it is
+// typed only on an https:// page on one of Sites. Once typed it is on the page;
+// where the page shows it again it is replaced by its placeholder in what the
+// model is shown, the step results and the transcript, as for a saved
+// credential (a card number however its digits are grouped, but not part of
+// it, such as the last four digits).
+//
+// Held in server memory only, and dropped when the session ends, when you
+// delete it, when the service restarts — register it again then — or when
+// TTLSeconds runs out (default one hour); one a step has typed, or tried to, is
+// kept past TTLSeconds, never typed again, only so it can still be hidden from
+// the model. Not retried by the SDK on a network error: a retry could register
+// it twice.
+//
+// Errors (mapped to typed Driftstack errors):
+//   - 400 *BadRequestError — the detail names the field, never the value
+//   - 404 — session unknown (or cross-account; existence not leaked)
+//   - 409 *ConflictError — the session is not active, or already holds 20 secrets
+func (r *AgentSessionsResource) RegisterSecret(ctx context.Context, agentSessionID string, body RegisterAgentSessionSecretRequest) (*AgentSessionSecret, error) {
+	var out AgentSessionSecret
+	req := requestOptions{
+		method: "POST",
+		path:   "/v1/agent-sessions/" + url.PathEscape(agentSessionID) + "/secrets",
+		body:   body,
+		out:    &out,
+	}
+	if err := r.client.do(ctx, req); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// ListSecrets returns the secrets this session holds now — handles, labels,
+// sites and times; never a value.
+func (r *AgentSessionsResource) ListSecrets(ctx context.Context, agentSessionID string) ([]AgentSessionSecret, error) {
+	var out struct {
+		Data []AgentSessionSecret `json:"data"`
+	}
+	req := requestOptions{
+		method: "GET",
+		path:   "/v1/agent-sessions/" + url.PathEscape(agentSessionID) + "/secrets",
+		out:    &out,
+	}
+	if err := r.client.do(ctx, req); err != nil {
+		return nil, err
+	}
+	return out.Data, nil
+}
+
+// DeleteSecret drops a secret now. A step of a turn already running that would
+// type it is refused. A handle the session does not hold is a 404.
+func (r *AgentSessionsResource) DeleteSecret(ctx context.Context, agentSessionID, handle string) error {
+	return r.client.do(ctx, requestOptions{
+		method: "DELETE",
+		path:   "/v1/agent-sessions/" + url.PathEscape(agentSessionID) + "/secrets/" + url.PathEscape(handle),
+	})
+}

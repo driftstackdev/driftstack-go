@@ -32,39 +32,39 @@ import (
 
 // lastPublishedRelease is the release comparableAtLastPublishedRelease was
 // measured on.
-const lastPublishedRelease = "0.5.0"
+const lastPublishedRelease = "0.6.0"
 
 // comparableAtLastPublishedRelease is every exported type that was comparable
-// in the module as published at v0.5.0: the proxy.golang.org zip,
-// type-checked with go/types on 2026-10-02, 99 of its 190 exported types.
+// in the module as published at v0.6.0: the packages/sdk-go source the v0.6.0
+// tag was mirrored from, type-checked with go/types on 2026-10-03, 96 types.
+// (v0.5.0 had 99; AgentIntent, AgentIntentResult and AgentStepEvent stopped
+// being comparable in v0.6.0, as its Migration note says.)
 // Re-measure it after each release: `go test -run TestComparableTypes -v`
 // logs the list for the current source.
 var comparableAtLastPublishedRelease = []string{
 	"APIKeyRevokedData", "Account", "AccountProxyExitObserved", "AccountProxyMetadata",
 	"AccountProxyOsFingerprint", "AccountProxyTestResult", "AccountProxyVpnConfig",
 	"AccountResource", "AccountStatus", "AccountTeamMembership", "AccountTier",
-	"AgentFailureDiagnosis", "AgentIntent", "AgentIntentResult", "AgentSessionEgressResult",
-	"AgentSessionErrorEvent", "AgentSessionsResource", "AgentStepEvent", "AgentStepWarning",
-	"AgentUsage", "ArchetypesResource", "BehavioralProfile", "BundledLlmStatus", "CaptureKind",
-	"CaptureRequest", "CaptureResponse", "CaptureSnapshotRequest", "Client",
-	"CloneProfileRequest", "ConsequentialActionApproval", "CreateAgentSessionRequest",
-	"CreateOptions", "CreateProxyOptions", "CreateRecipeRequest", "EgressResource",
-	"ImportProfileRequest", "InteractAction", "InteractRequest", "InteractResponse",
-	"LaunchProfileRequest", "ListAgentSessionsQuery", "ListDeliveriesQuery",
+	"AgentFailureDiagnosis", "AgentSessionEgressResult", "AgentSessionErrorEvent",
+	"AgentSessionsResource", "AgentStepWarning", "AgentUsage", "ArchetypesResource",
+	"BehavioralProfile", "BundledLlmStatus", "CaptureKind", "CaptureRequest", "CaptureResponse",
+	"CaptureSnapshotRequest", "Client", "CloneProfileRequest", "ConsequentialActionApproval",
+	"CreateAgentSessionRequest", "CreateOptions", "CreateProxyOptions", "CreateRecipeRequest",
+	"EgressResource", "ImportProfileRequest", "InteractAction", "InteractRequest",
+	"InteractResponse", "LaunchProfileRequest", "ListAgentSessionsQuery", "ListDeliveriesQuery",
 	"ListFieldExtraction", "ListProfileSnapshotsQuery", "ListProfilesQuery", "ListRecipesQuery",
 	"ListSessionsQuery", "ListSupportConversationsParams", "LiveKitInfo", "NavigateRequest",
-	"NavigateResponse", "PageState", "PageStateError", "PendingAcceptance",
-	"ProfileActivityEntry", "ProfileExportEnvelope", "ProfileExportPayload",
-	"ProfileGeolocation", "ProfileSnapshot", "ProfileSnapshotsResource", "ProfilesResource",
-	"PublicArchetype", "RateLimitBucket", "Recipe", "RecipeSuggestion", "RecipesResource",
-	"RestoreSnapshotRequest", "ResumeAgentSessionRequest", "ResumeAgentSessionResponse",
-	"RetryConfig", "RotateWebhookSecretResponse", "SearchRequest", "SearchResponse",
-	"SendTestWebhookResponse", "SessionCompletedData", "SessionGeolocation", "SessionLiveness",
-	"SessionLoginRequest", "SessionLoginResponse", "SessionPurpose", "SessionStatus",
-	"SessionsResource", "StopAgentTurnResponse", "SupportConversation", "SupportResource",
-	"TranscriptOptions", "TrimProfileResponse", "UpdateWebhookRequest", "UsageRecordType",
-	"UsageResource", "VerifyWebhookOptions", "WaitCondition", "WaitRequest", "WaitResponse",
-	"WebhookDelivery", "WebhookDeliveryStatus", "WebhookEndpointDeliveryCounts",
+	"NavigateResponse", "PageState", "PageStateError", "PendingAcceptance", "ProfileActivityEntry",
+	"ProfileExportEnvelope", "ProfileExportPayload", "ProfileGeolocation", "ProfileSnapshot",
+	"ProfileSnapshotsResource", "ProfilesResource", "PublicArchetype", "RateLimitBucket", "Recipe",
+	"RecipeSuggestion", "RecipesResource", "RestoreSnapshotRequest", "ResumeAgentSessionRequest",
+	"ResumeAgentSessionResponse", "RetryConfig", "RotateWebhookSecretResponse", "SearchRequest",
+	"SearchResponse", "SendTestWebhookResponse", "SessionCompletedData", "SessionGeolocation",
+	"SessionLiveness", "SessionLoginRequest", "SessionLoginResponse", "SessionPurpose",
+	"SessionStatus", "SessionsResource", "StopAgentTurnResponse", "SupportConversation",
+	"SupportResource", "TranscriptOptions", "TrimProfileResponse", "UpdateWebhookRequest",
+	"UsageRecordType", "UsageResource", "VerifyWebhookOptions", "WaitCondition", "WaitRequest",
+	"WaitResponse", "WebhookDelivery", "WebhookDeliveryStatus", "WebhookEndpointDeliveryCounts",
 	"WebhookEventType", "WebhooksResource",
 }
 

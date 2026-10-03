@@ -420,6 +420,24 @@ const (
 type CaptureRequest struct {
 	Kind     CaptureKind `json:"kind"`
 	FullPage bool        `json:"full_page,omitempty"`
+	// FrameMatch — only with CaptureDOMSnapshot: read the embedded document
+	// (iframe) whose current address matches, instead of the page. Exactly one
+	// frame must match; with none or several, nothing is read and the call
+	// returns a 409 *ConflictError.
+	FrameMatch *FrameMatch `json:"frame_match,omitempty"`
+}
+
+// FrameMatch names an embedded frame by its current address. Host is compared
+// exactly (letter case aside; the port is not compared); PathPrefix in whole
+// path segments ("/embed" matches "/embed/card", not "/embedded"); each Query
+// entry must be present with exactly that value once its URL encoding is
+// undone, on every occurrence of the parameter. A Query name whose value the
+// browser removes before it reaches Driftstack (client_secret, token,
+// code_verifier and the like) is refused with a 400.
+type FrameMatch struct {
+	Host       string            `json:"host"`
+	PathPrefix string            `json:"path_prefix,omitempty"`
+	Query      map[string]string `json:"query,omitempty"`
 }
 
 type CaptureResponse struct {

@@ -6,6 +6,41 @@ follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added (2026-10-03)
+
+- **Session secrets: `AgentSessions.RegisterSecret(ctx, id, body)`,
+  `ListSecrets(ctx, id)` and `DeleteSecret(ctx, id, handle)`.** Register a
+  password, a one-time code or a payment card number for one agent session and
+  get back a handle (`sec_…`); write `{{credential:<handle>}}` in a `Message` as
+  the whole value of the step that types it. The plan, the transcript and every
+  response carry the handle, and the value is typed only on an `https://` page
+  on one of `Sites`. Once typed it is on the page; where the page shows it
+  again it is replaced by its placeholder in what the model is shown, the step
+  results and the transcript, as for a saved credential (a card number however
+  its digits are grouped, but not part of it). `Label` appears in refusals the
+  model reads, so put nothing secret in it. It is held in server memory only and
+  dropped when the session ends, when deleted, when the service restarts, or
+  when `TTLSeconds` runs out (default 3600); one a step has typed, or tried to,
+  is kept past `TTLSeconds`, never typed again, only to keep hiding it from the
+  model. New types `AgentSessionSecret` and
+  `RegisterAgentSessionSecretRequest`. `RegisterSecret` is not retried on a
+  network error, since a retry could register the value twice.
+
+- **`CaptureRequest.FrameMatch` (`*FrameMatch`).** With `CaptureDOMSnapshot`,
+  reads one embedded frame (an iframe) named by its address instead of the
+  page: `Host` (required; exact, letter case aside, port not compared),
+  `PathPrefix` (whole path segments) and `Query` (each parameter with exactly
+  that value; at most 10). Exactly one frame must match. With none or several,
+  nothing is read, the session stays ready, and `Capture` returns a 409
+  `*ConflictError` whose `Problem["code"]` is `"frame_not_found"`,
+  `"frame_match_ambiguous"` (`Problem["matched_frames"]` is the count) or
+  `"frame_match_unconfirmed"`. A `Query` parameter whose value the browser
+  removes before it reaches Driftstack (`client_secret`, `token`,
+  `code_verifier`, ...; the full list is in the Sessions reference), or
+  `FrameMatch` on a screenshot or a PDF, returns a 400 `*BadRequestError`. A
+  session started with a `ProxyID` cannot run it yet, like every step-by-step
+  operation.
+
 ## [0.6.0] - 2026-10-03
 
 v0.6.0 adds to v0.5.0 and removes nothing. One addition can stop a v0.5.0
