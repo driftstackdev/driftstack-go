@@ -388,9 +388,10 @@ type AgentIntent struct {
 	TimeoutMs *int   `json:"timeoutMs,omitempty"`
 	// capture: "screenshot" | "dom_snapshot" | "pdf".
 	Capture string `json:"capture,omitempty"`
-	// Frame, only on a "dom_snapshot" capture or a whole-page "extract"
-	// (Body true, no Selector): the embedded document (an iframe) that was read
-	// instead of the page, as a path of positions — its place among the page's
+	// Frame, only on a "dom_snapshot" capture, a whole-page "extract"
+	// (Body true, no Selector) or an "interact" that types: the embedded
+	// document (an iframe) that was read or typed into instead of the page, as
+	// a path of positions — its place among the page's
 	// frames, then its place inside that frame for a nested one, outermost
 	// first. Positions follow the order the browser created the frames, which
 	// is not always the order of the iframe tags in the markup. Empty: the page

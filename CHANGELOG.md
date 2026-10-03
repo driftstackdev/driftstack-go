@@ -77,11 +77,12 @@ follows [SemVer](https://semver.org/spec/v2.0.0.html).
   one, outermost first (`[0]`, `[0, 1]`). Each position is 0 to 512, and a path
   is 1 to 8 levels deep. Frames are numbered by the session's own frame list, in
   the order the browser created them, which is not always the order of the
-  iframe tags in the markup. `Frame` is only for reading: it is set only on
-  those two reads, never on a screenshot, a PDF, an `"extract"` by selector or
-  a step that taps, types or waits, so no step can name a frame to tap or type
-  into. A `"tap_at"` step taps a point on the screen, and that point can be
-  inside a frame. Empty means the step read the page itself. You see it in the steps a turn
+  iframe tags in the markup. `Frame` is also set on an `"interact"` with
+  `Action` `"type"`: the step typed into an element inside that frame. It is
+  never set on a screenshot, a PDF, an `"extract"` by selector or a step that
+  taps, scrolls, presses or waits, so no step can name a frame to tap into. A
+  `"tap_at"` step taps a point on the screen, and that point can be inside a
+  frame. Empty means the step read the page itself. You see it in the steps a turn
   reports (`ParsedIntents()`, and each result's `Intent`), in a transcript
   entry's `Intents` and in a recipe's `IntentLog`. `Frame` is a slice, so
   `AgentIntent` and the two types that hold one can no longer be compared with
