@@ -316,7 +316,7 @@ type AgentMessageResponse struct {
 	AnswerUnavailable string `json:"answer_unavailable,omitempty"`
 	// Notice is set on a "plan-executed" turn that ended before the task was
 	// finished — it reached a limit on steps, time or budget, stopped rather
-	// than repeat itself, or the browser in the session stopped responding —
+	// than repeat itself, or the session stopped answering automated steps —
 	// or when the agent asked you something part-way through; when it asks for
 	// "continue", send that as the next message. On a "stopped" turn it is one
 	// sentence saying how far it got.
@@ -331,7 +331,7 @@ type AgentMessageResponse struct {
 	//	"repeated_step"  the next step would repeat an action that already ran; check, then "continue"
 	//	"ai_unavailable" the next steps could not be worked out just now; send "continue" to try again
 	//	"page_unreadable" the page could not be read to plan the next step; send "continue" to try again
-	//	"session_unresponsive" the browser in this session stopped responding; end the session and launch a new one ("continue" will not help)
+	//	"session_unresponsive" this session stopped answering automated steps (the live view may still show the page); end the session and launch a new one ("continue" will not help)
 	//	"question"       the agent asked you something part-way; Notice is the question, answer it
 	//	"declined"       the agent stopped rather than carry on; a person should decide
 	//
@@ -350,10 +350,10 @@ type AgentMessageResponse struct {
 	//
 	// On a "refuse" turn NoticeReason is set only when the refusal was not the
 	// agent's choice, and Notice is empty there (RefuseReason is the
-	// sentence): "session_unresponsive" — the browser in this session stopped
-	// responding before anything was planned, so nothing was done with the
-	// message; end the session and launch a new one. Empty on every other
-	// refusal.
+	// sentence): "session_unresponsive" — this session stopped answering
+	// automated steps (the live view may still show the page) before anything
+	// was planned, so nothing was done with the message; end the session and
+	// launch a new one. Empty on every other refusal.
 	NoticeReason string `json:"notice_reason,omitempty"`
 	// StoppedDuring is what a "stopped" turn was doing when it noticed the
 	// stop: "planning", "executing", "reading_page" or "answering".
@@ -423,11 +423,12 @@ type AgentIntent struct {
 // something else.
 // "credential_site_not_allowed" means a saved credential was not typed because
 // the page was not an https:// page on a website the credential is saved for.
-// "session_unresponsive" means the browser in this session stopped responding,
-// so the step was not sent; it is never retryable — end the session and launch
-// a new one. Retryable true means replaying the same step
-// automatically is safe; false means never auto-replay — the request may need
-// correcting, or the step's outcome is unknown and the page must be checked.
+// "session_unresponsive" means this session stopped answering automated steps
+// (the live view may still show the page), so the step was not sent; it is
+// never retryable — end the session and launch a new one. Retryable true
+// means replaying the same step automatically is safe; false means never
+// auto-replay — the request may need correcting, or the step's outcome is
+// unknown and the page must be checked.
 type AgentFailureDiagnosis struct {
 	Category  string `json:"category"`
 	Retryable bool   `json:"retryable"`

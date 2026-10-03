@@ -96,13 +96,13 @@ follows [SemVer](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - **`"session_unresponsive"`** joins the `Diagnosis.Category` values and the
-  `NoticeReason` values. The browser in the session stopped responding: it had already failed to answer, and a quick check sent just before the next step got no answer either, so that step was not sent. The step fails
+  `NoticeReason` values. The session stopped answering automated steps (the live view may still show the page): it had already failed to answer one, and a quick check sent just before the next step got no answer either, so that step was not sent. The step fails
   with `Diagnosis.Category` `"session_unresponsive"` and `Retryable` false, and
   the turn stops there with `NoticeReason` `"session_unresponsive"`; a turn that
   hit it before planning anything answers `Kind` `"refuse"` with the same
   `NoticeReason` `"session_unresponsive"`. **What to do:** end
   the session and launch a new one — sending "continue" will not help. If the
-  browser answers the check again, steps run as normal. Both fields are plain
+  session answers the check again, steps run as normal. Both fields are plain
   strings, so nothing changes in the types.
 - **`AccountResource.ListCredentials`** — `GET /v1/account/me/credentials`:
   the `Handle`, `Label`, `Sites`, `IncludeSubdomains` and `CreatedAt` of each
