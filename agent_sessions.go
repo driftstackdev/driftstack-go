@@ -289,7 +289,13 @@ type AgentUsage struct {
 // failed step too (Diagnosis.Category "invalid_request"), and OK stays false
 // after it unless a later step acts on the page: a screenshot, a read or a
 // pause after it does not make up for it, so the last entry of Results can
-// then be a success. Read typed steps with ParsedResults.
+// then be a success. OK is false, too, when the turn delivered nothing — no
+// step that changed the page or scrolled it, no screenshot and no Answer —
+// unless the message only asked to wait, and when an English message asks for
+// more things to be done than distinct steps that changed the page ran: every
+// entry of Results can then be a success, and there is no failed step to find
+// — read Notice, or AnswerUnavailable when the answer asked for could not be
+// read. Read typed steps with ParsedResults.
 type AgentMessageResponse struct {
 	Kind    string       `json:"kind"`
 	Session AgentSession `json:"session"`
