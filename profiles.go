@@ -102,8 +102,20 @@ func (r *ProfilesResource) Get(ctx context.Context, profileID string) (*Profile,
 }
 
 // Update applies a partial change. Fields left as zero / nil are
-// untouched server-side.
+// untouched server-side. A Clear flag (ClearNotes, ClearDefaultProxyID, ...)
+// removes a stored value; a field set beside its own Clear flag is an error,
+// IsRetryable false, and nothing is sent. With ExpectedRevision set, a
+// profile another computer changed first is refused with a 409
+// *ConflictError (Problem["code"] "stale_revision") and nothing changes.
 func (r *ProfilesResource) Update(ctx context.Context, profileID string, body *UpdateProfileRequest) (*Profile, error) {
+	// Checked here, not left to MarshalJSON: a body that fails to encode
+	// reaches the caller as a *TransportError, which IsRetryable reports true
+	// for, and this request can never succeed.
+	if body != nil {
+		if err := body.contradiction(); err != nil {
+			return nil, err
+		}
+	}
 	var out Profile
 	if err := r.client.do(ctx, requestOptions{
 		method: "PATCH",

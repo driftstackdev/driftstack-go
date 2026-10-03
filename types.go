@@ -780,7 +780,8 @@ type Profile struct {
 	// chose), "bound" (DefaultProxyID is used when a create names the profile
 	// and no ProxyID), "detached" (its proxy was deleted; a create naming it
 	// without a ProxyID is refused 409 until a proxy is chosen). Set by the
-	// server; send DefaultProxyID on Update to bind, or nil to unset.
+	// server; send DefaultProxyID on Create or Update to bind, or
+	// ClearDefaultProxyID on Update to unset.
 	DefaultProxyID *string `json:"default_proxy_id"`
 	ProxyChoice    string  `json:"proxy_choice"`
 	// Geolocation / StopOnExitIPChange — launch settings that default onto a
@@ -824,26 +825,176 @@ type CreateProfileRequest struct {
 	Tags        []string `json:"tags,omitempty"`
 	Icon        string   `json:"icon,omitempty"` // short emoji (≤16) — per-account UI metadata
 	Note        string   `json:"note,omitempty"` // short inline note (≤280)
+	// DefaultProxyID — the id of one of your saved proxies for the profile to
+	// launch through (ProxyChoice then reads "bound"). The id of a proxy that
+	// is not one of yours is a 404 *NotFoundError; an http proxy, which cannot
+	// carry a session, is a 400 *BadRequestError. Empty sends nothing, and the
+	// profile starts "unset".
+	DefaultProxyID string `json:"default_proxy_id,omitempty"`
+	// Geolocation / StopOnExitIPChange — launch settings that default onto a
+	// session created with this profile when the create omits them. Nil and
+	// false send nothing: the profile has no fixed location and does not stop
+	// its sessions when their exit IP changes.
+	Geolocation        *ProfileGeolocation `json:"geolocation,omitempty"`
+	StopOnExitIPChange bool                `json:"stop_on_exit_ip_change,omitempty"`
 }
 
 // UpdateProfileRequest matches the server's update-profile request.
-// is `{ name?, description?, folder?, tags? }`. All optional. Tags is
-// an exact-set replace. Note: `omitempty` means a nil Folder is
-// omitted (field untouched) — same explicit-null limitation as
-// Description; clear via Tags: []string{} marshals away too, so
-// null-clears need a raw request (documented SDK-wide limitation).
+// Every field is optional. A nil pointer, a nil or empty Tags and a false
+// Clear flag send nothing, and the server leaves that setting as it is.
+//
+// A pointer sets a value. A Clear flag removes one: ClearDescription,
+// ClearFolder, ClearIcon, ClearNote, ClearNotes, ClearDefaultProxyID and
+// ClearGeolocation send the field as JSON null, and ClearTags sends an empty
+// list, which removes every tag. A pointer and its own Clear flag set together
+// contradict each other, so Update returns an error and sends nothing;
+// IsRetryable reports false for it, since resending cannot succeed. A
+// pointer to "" sends an empty string, which the server stores as "" rather
+// than null (and refuses for Folder, with a 400); only a Clear flag stores
+// null.
 type UpdateProfileRequest struct {
-	Name        *string  `json:"name,omitempty"`
-	Description *string  `json:"description,omitempty"`
-	Folder      *string  `json:"folder,omitempty"`
-	Tags        []string `json:"tags,omitempty"`
-	Icon        *string  `json:"icon,omitempty"`  // short emoji (≤16) — per-account UI metadata
-	Note        *string  `json:"note,omitempty"`  // short inline note (≤280)
-	Notes       *string  `json:"notes,omitempty"` // free-text notes kept with the profile (≤16 KiB UTF-8)
+	Name        *string `json:"name,omitempty"`
+	Description *string `json:"description,omitempty"`
+	Folder      *string `json:"folder,omitempty"`
+	// Tags replaces the whole set; send ClearTags to remove every tag.
+	Tags  []string `json:"tags,omitempty"`
+	Icon  *string  `json:"icon,omitempty"`  // short emoji (≤16) — per-account UI metadata
+	Note  *string  `json:"note,omitempty"`  // short inline note (≤280)
+	Notes *string  `json:"notes,omitempty"` // free-text notes kept with the profile (≤16 KiB UTF-8)
 	// ProxyChoice — only "detached" may be sent: the profile has no proxy and
 	// is never given one you did not choose (what deleting its proxy does,
-	// asked for directly). Nil leaves the choice alone.
+	// asked for directly). Nil leaves the choice alone. Sent beside a
+	// DefaultProxyID it is a 400 *BadRequestError.
 	ProxyChoice *string `json:"proxy_choice,omitempty"`
+	// DefaultProxyID — the id of one of your saved proxies for the profile to
+	// launch through (ProxyChoice then reads "bound"); a 404 *NotFoundError
+	// for a proxy that is not one of yours, a 400 *BadRequestError for an http
+	// proxy. ClearDefaultProxyID unsets it instead (ProxyChoice "unset").
+	DefaultProxyID *string `json:"default_proxy_id,omitempty"`
+	// Geolocation — the fixed location a session created with this profile
+	// uses when its create does not send one; ClearGeolocation removes it.
+	Geolocation *ProfileGeolocation `json:"geolocation,omitempty"`
+	// StopOnExitIPChange — whether a session created with this profile stops
+	// when its exit IP changes, when its create does not say. A pointer, so
+	// false can be sent.
+	StopOnExitIPChange *bool `json:"stop_on_exit_ip_change,omitempty"`
+	// ExpectedRevision — the Profile.Revision you last read. When the profile
+	// has moved on since (another computer changed it), the update is refused
+	// with a 409 *ConflictError whose Problem["code"] is "stale_revision" and
+	// Problem["current_revision"] the revision now stored, and nothing
+	// changes. Nil writes unconditionally.
+	ExpectedRevision *int `json:"expected_revision,omitempty"`
+
+	// The Clear flags. Each sends its field as null (ClearTags: an empty
+	// list), removing what is stored. Never sent themselves.
+	ClearDescription    bool `json:"-"`
+	ClearFolder         bool `json:"-"`
+	ClearTags           bool `json:"-"`
+	ClearIcon           bool `json:"-"`
+	ClearNote           bool `json:"-"`
+	ClearNotes          bool `json:"-"`
+	ClearDefaultProxyID bool `json:"-"`
+	ClearGeolocation    bool `json:"-"`
+}
+
+// MarshalJSON writes the body the server reads: nothing for a field left
+// alone, null (or [] for tags) for a Clear flag, and the value for a pointer.
+// It fails, so nothing is sent, when a field and its Clear flag are both set.
+func (r UpdateProfileRequest) MarshalJSON() ([]byte, error) {
+	if err := r.contradiction(); err != nil {
+		return nil, err
+	}
+	// Field order is the order the body had before this method existed, so a
+	// request that sets none of the new fields is written byte for byte as it was.
+	var wire struct {
+		Name               *string         `json:"name,omitempty"`
+		Description        json.RawMessage `json:"description,omitempty"`
+		Folder             json.RawMessage `json:"folder,omitempty"`
+		Tags               json.RawMessage `json:"tags,omitempty"`
+		Icon               json.RawMessage `json:"icon,omitempty"`
+		Note               json.RawMessage `json:"note,omitempty"`
+		Notes              json.RawMessage `json:"notes,omitempty"`
+		ProxyChoice        *string         `json:"proxy_choice,omitempty"`
+		DefaultProxyID     json.RawMessage `json:"default_proxy_id,omitempty"`
+		Geolocation        json.RawMessage `json:"geolocation,omitempty"`
+		StopOnExitIPChange *bool           `json:"stop_on_exit_ip_change,omitempty"`
+		ExpectedRevision   *int            `json:"expected_revision,omitempty"`
+	}
+	var err error
+	if wire.Description, err = clearableField(r.Description, r.ClearDescription); err != nil {
+		return nil, err
+	}
+	if wire.Folder, err = clearableField(r.Folder, r.ClearFolder); err != nil {
+		return nil, err
+	}
+	if wire.Icon, err = clearableField(r.Icon, r.ClearIcon); err != nil {
+		return nil, err
+	}
+	if wire.Note, err = clearableField(r.Note, r.ClearNote); err != nil {
+		return nil, err
+	}
+	if wire.Notes, err = clearableField(r.Notes, r.ClearNotes); err != nil {
+		return nil, err
+	}
+	if wire.DefaultProxyID, err = clearableField(r.DefaultProxyID, r.ClearDefaultProxyID); err != nil {
+		return nil, err
+	}
+	if wire.Geolocation, err = clearableField(r.Geolocation, r.ClearGeolocation); err != nil {
+		return nil, err
+	}
+	switch {
+	case r.ClearTags:
+		wire.Tags = json.RawMessage("[]")
+	case len(r.Tags) > 0:
+		if wire.Tags, err = json.Marshal(r.Tags); err != nil {
+			return nil, err
+		}
+	}
+	wire.Name = r.Name
+	wire.ProxyChoice = r.ProxyChoice
+	wire.StopOnExitIPChange = r.StopOnExitIPChange
+	wire.ExpectedRevision = r.ExpectedRevision
+	return json.Marshal(wire)
+}
+
+// contradiction returns an error naming the first field set beside its own
+// Clear flag, or nil. Update calls it before anything is encoded, so the
+// caller gets a plain error, which IsRetryable reports false for: resending
+// the same request can never succeed. (Left to json.Marshal, the failure
+// would reach the caller as a *TransportError, which IsRetryable reports true
+// for.) MarshalJSON calls it too, for a caller who encodes the request itself.
+func (r *UpdateProfileRequest) contradiction() error {
+	for _, f := range []struct {
+		name       string
+		set, clear bool
+	}{
+		{"Description", r.Description != nil, r.ClearDescription},
+		{"Folder", r.Folder != nil, r.ClearFolder},
+		{"Tags", len(r.Tags) > 0, r.ClearTags},
+		{"Icon", r.Icon != nil, r.ClearIcon},
+		{"Note", r.Note != nil, r.ClearNote},
+		{"Notes", r.Notes != nil, r.ClearNotes},
+		{"DefaultProxyID", r.DefaultProxyID != nil, r.ClearDefaultProxyID},
+		{"Geolocation", r.Geolocation != nil, r.ClearGeolocation},
+	} {
+		if f.set && f.clear {
+			return fmt.Errorf("driftstack: UpdateProfileRequest sets both %s and Clear%s; set one", f.name, f.name)
+		}
+	}
+	return nil
+}
+
+// clearableField encodes one field that a request can leave alone (nil
+// value, remove false: nothing is written), set (value) or clear (null).
+// contradiction has already refused a value and remove set together.
+func clearableField[T any](value *T, remove bool) (json.RawMessage, error) {
+	switch {
+	case remove:
+		return json.RawMessage("null"), nil
+	case value == nil:
+		return nil, nil
+	}
+	return json.Marshal(value)
 }
 
 type ProfilesListPage struct {

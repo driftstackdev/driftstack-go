@@ -6,6 +6,10 @@ follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+One change below alters, with no compile error and no runtime error, how a
+struct of yours that embeds `UpdateProfileRequest` is encoded to JSON. If your
+program has one, read **Changed** below first.
+
 ### Added (2026-10-03)
 
 - **Session secrets: `AgentSessions.RegisterSecret(ctx, id, body)`,
@@ -40,6 +44,53 @@ follows [SemVer](https://semver.org/spec/v2.0.0.html).
   `FrameMatch` on a screenshot or a PDF, returns a 400 `*BadRequestError`. A
   session started with a `ProxyID` cannot run it yet, like every step-by-step
   operation.
+
+- **A profile's proxy and launch settings can be set from Go:
+  `DefaultProxyID`, `Geolocation` and `StopOnExitIPChange` on
+  `CreateProfileRequest` and `UpdateProfileRequest`.** `Profile` already
+  returned them. `DefaultProxyID` is one of your saved proxies for the profile
+  to launch through (`Profile.ProxyChoice` then reads `"bound"`); a proxy that
+  is not one of yours is a 404 `*NotFoundError`, and an `http` proxy, which
+  cannot carry a session, is a 400 `*BadRequestError`. `Geolocation` and
+  `StopOnExitIPChange` apply to a session created with the profile unless its
+  create sets its own. On `UpdateProfileRequest`, `StopOnExitIPChange` is a
+  `*bool`, so `false` can be sent.
+
+- **`UpdateProfileRequest.ExpectedRevision` (`*int`).** Send the
+  `Profile.Revision` you last read, and an update to a profile that another
+  computer changed first is refused with a 409 `*ConflictError` whose
+  `Problem["code"]` is `"stale_revision"` (`Problem["current_revision"]` is
+  the revision now stored), and nothing changes. Leave it nil to write
+  unconditionally, as before.
+
+- **Clearing a profile setting: `ClearDescription`, `ClearFolder`,
+  `ClearTags`, `ClearIcon`, `ClearNote`, `ClearNotes`, `ClearDefaultProxyID`
+  and `ClearGeolocation` on `UpdateProfileRequest`.** A nil field leaves a
+  setting as it is, so until now an update could not remove one. Each flag
+  sends its field as `null` and removes what is stored; `ClearTags` sends an
+  empty list and removes every tag, and `ClearDefaultProxyID` leaves the
+  profile `"unset"`. Setting a field and its own Clear flag together is an
+  error, and nothing is sent; `IsRetryable` returns false for it, since
+  sending it again cannot succeed. An update that uses none of the new fields
+  is sent exactly as before. `UpdateProfileRequest` now has a `MarshalJSON`
+  method, which changes how a struct that embeds it is encoded: see
+  **Changed** below.
+
+### Changed (2026-10-03)
+
+- **A struct of yours that embeds `UpdateProfileRequest` is now encoded as
+  `UpdateProfileRequest` alone, and your own fields are left out.**
+  `UpdateProfileRequest` now has a `MarshalJSON` method (it writes the Clear
+  flags), and `encoding/json` uses a method promoted from an embedded field to
+  encode the whole struct. Nothing stops compiling and no error is returned:
+  ``struct { UpdateProfileRequest; Extra string `json:"extra"` }`` with `Name`
+  `"x"` encodes as `{"name":"x"}`, where v0.6.0 also wrote `"extra"`. This
+  reaches you only if you encode such a struct yourself (to store, queue or
+  log it, say); `Profiles.Update` takes an `*UpdateProfileRequest`, so the
+  body it sends is unchanged. To keep your fields, give the field a name
+  (`Update UpdateProfileRequest`), which nests the request under that name, or
+  write a `MarshalJSON` for your struct that encodes the two parts and joins
+  them.
 
 ## [0.6.0] - 2026-10-03
 
