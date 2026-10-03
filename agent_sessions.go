@@ -383,6 +383,9 @@ type AgentIntent struct {
 	// interact: Action is "tap" | "type" | "scroll" | "swipe" | "press".
 	// Sensitive is true on a "type" step whose value (a card number, a
 	// one-time code, a PIN) is withheld from the response.
+	// On a "type" step Value is added to what the field holds, and an empty
+	// Value clears the field instead (send an empty one, then the new text,
+	// to replace what it held).
 	Action    string `json:"action,omitempty"`
 	Selector  string `json:"selector,omitempty"`
 	Value     string `json:"value,omitempty"`
@@ -393,13 +396,15 @@ type AgentIntent struct {
 	// capture: "screenshot" | "dom_snapshot" | "pdf".
 	Capture string `json:"capture,omitempty"`
 	// Frame, only on a "dom_snapshot" capture, a whole-page "extract"
-	// (Body true, no Selector) or an "interact" that types: the embedded
-	// document (an iframe) that was read or typed into instead of the page, as
-	// a path of positions — its place among the page's
+	// (Body true, no Selector) or an "interact" that types — and, on a session
+	// whose device can act inside a frame, an "interact" that taps and a
+	// "selector_visible" "wait" (never a scroll or a key press): the embedded
+	// document (an iframe) that was read, typed or tapped into, or waited in
+	// instead of the page, as a path of positions — its place among the page's
 	// frames, then its place inside that frame for a nested one, outermost
 	// first. Positions follow the order the browser created the frames, which
-	// is not always the order of the iframe tags in the markup. Empty: the page
-	// itself.
+	// is not always the order of the iframe tags in the markup. Empty: the
+	// page itself.
 	Frame []int `json:"frame,omitempty"`
 	// scroll: Direction is "up" | "down".
 	Direction string `json:"direction,omitempty"`

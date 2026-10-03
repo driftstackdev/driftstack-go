@@ -12,6 +12,19 @@ program has one, read **Changed** below first.
 
 ### Added (2026-10-03)
 
+- **On a session whose device supports it, a tap or a wait can name a frame.**
+  Additive, and nothing changes on any other session or in the types. On a
+  session whose device can act inside an embedded frame (an iframe), `Frame`
+  can be set on an `"interact"` step with `Action` `"tap"`, and on a `"wait"`
+  with `Condition` `"selector_visible"` — the same path of positions as a
+  read's. The tap's selector is matched, and the element is waited for, inside
+  that frame. A `"scroll"` or `"press"` never carries `Frame`: both act on the
+  page itself. Such a step succeeded only when the session confirmed it was
+  done inside exactly that frame; one it did not confirm fails and is not tried
+  again (`Diagnosis.Category` `"unknown"` for a tap, `"condition_not_met"` for
+  a wait). A tap inside a frame that pays, buys or deletes an account asks for
+  approval as one on the page does.
+
 - **Session secrets: `AgentSessions.RegisterSecret(ctx, id, body)`,
   `ListSecrets(ctx, id)` and `DeleteSecret(ctx, id, handle)`.** Register a
   password, a one-time code or a payment card number for one agent session and
