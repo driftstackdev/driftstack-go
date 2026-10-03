@@ -2,4 +2,4 @@ package driftstack
 
 // Version is the Driftstack Go SDK semver string. Bump in lockstep
 // with the git tag on release.
-const Version = "0.5.0"
+const Version = "0.6.0"

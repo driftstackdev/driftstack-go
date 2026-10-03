@@ -6,14 +6,19 @@ follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Added (2026-10-02)
+## [0.6.0] - 2026-10-03
 
-- **Two more agent-session models: `"claude-fable-5-1"` (Claude Fable 5.1) and
-  `"claude-opus-5-5"` (Claude Opus 5.5).** Both run only on your own Anthropic
-  key, like every Opus model: when a session would run on Driftstack's included
-  AI, `Create` (and every message) returns a 403 `*ForbiddenError` whose
-  `RequiresOwnKey()` is true. The default model is unchanged
-  (`"claude-sonnet-5"`).
+v0.6.0 adds to v0.5.0 and removes nothing. One addition can stop a v0.5.0
+program compiling: `AgentIntent`, `AgentIntentResult` and `AgentStepEvent` can
+no longer be compared with `==` or used as map keys. If your program does
+either, read **Migration** below first. Upgrade with
+`go get github.com/driftstackdev/driftstack-go@v0.6.0`.
+
+Hosted Driftstack now runs every session through a proxy of yours, and
+`CreateSessionRequest.ProxyID` and `LaunchProfileRequest.ProxyID`, new here,
+are how `Sessions.Create` and `Profiles.Launch` name one.
+
+### Added
 
 - **`CreateSessionRequest.ProxyID` and `LaunchProfileRequest.ProxyID`.** The
   id of one of your saved proxies; the session's traffic goes out through it.
@@ -24,36 +29,6 @@ follows [SemVer](https://semver.org/spec/v2.0.0.html).
   Interact, Capture, ...) yet: they answer 503 and leave the session ready.
   It ends, and reads `destroyed`, when its agent session is closed or it stops
   on its own (30 minutes without activity, or its time limit).
-
-### Changed (2026-10-02)
-
-- **A tap that changed nothing is a failed step, and a turn that stopped
-  because nothing was changing is not `OK`.** A tap the browser made and then
-  saw change nothing on the page now comes back as a `"failure"` with
-  `Diagnosis.Category == "no_effect"`, not as a `"success"`; the agent looks at
-  the page again and tries something else. A tap where whether it changed
-  anything could not be checked is still a `"success"`, now with
-  `Warning.Kind == "effect_unknown"` and a summary that says so. An
-  `AgentMessageResponse` with `NoticeReason == "no_progress"` now always has
-  `OK` false. A `"type"` step the browser could type only part of is a
-  `"failure"`.
-
-- **`AccountResource.ListCredentials` follows the team workspace.** With
-  `WithEffectiveAccount`, a team member of either role lists the account
-  owner's saved credentials — the ones agent tasks in that workspace use — as
-  the same fields (`Handle`, `Label`, `Sites`, `IncludeSubdomains`,
-  `CreatedAt`), never a value. Without it, nothing changes: your own. A
-  workspace you are not a member of answers 403.
-
-### Deprecated (2026-10-02)
-
-- **`Egress.AttachToSession` and `Egress.GetSessionProxy`.** The server retired
-  `/v1/sessions/:id/proxy`: both answer 410 (`*FeatureUnavailableError`, code
-  `endpoint_retired`) on every deployment. Set `ProxyID` when you create the
-  session.
-
-### Added (2026-10-01)
-
 - **`AgentSession.Ready` (`*bool`), `ReadyAt` and `AgentSession.IsReady()`.**
   `Status` reads `"active"` from the moment a session is created; `Ready` turns
   true once the session reports that its browser has finished
@@ -69,6 +44,12 @@ follows [SemVer](https://semver.org/spec/v2.0.0.html).
   still starting then, nothing ran and the message is
   refused with this error. `IsRetryable` returns true; `RetryAfterSeconds` says
   how long to wait, and the same idempotency key is safe to reuse.
+- **Two more agent-session models: `"claude-fable-5-1"` (Claude Fable 5.1) and
+  `"claude-opus-5-5"` (Claude Opus 5.5).** Both run only on your own Anthropic
+  key, like every Opus model: when a session would run on Driftstack's included
+  AI, `Create` (and every message) returns a 403 `*ForbiddenError` whose
+  `RequiresOwnKey()` is true. The default model is unchanged
+  (`"claude-sonnet-5"`).
 - **`AgentIntent.Frame` (`[]int`) on a read step.** A step with `Kind`
   `"capture"` and `Capture` `"dom_snapshot"`, and one with `Kind` `"extract"`
   and `Body` true, can now carry `Frame`: the embedded document (an iframe) the
@@ -92,9 +73,17 @@ follows [SemVer](https://semver.org/spec/v2.0.0.html).
   true); a `"tap_at"` step taps the point `X`, `Y`, in viewport pixels from the
   top-left corner. The API already returned these steps; their fields are now
   decoded instead of dropped. Additive.
-
-### Added
-
+- **`AccountResource.ListCredentials`** — `GET /v1/account/me/credentials`:
+  the `Handle`, `Label`, `Sites`, `IncludeSubdomains` and `CreatedAt` of each
+  saved credential on the account, never the value. Write a handle into an
+  agent task as `{{credential:<handle>}}`, as the text of a type step. Each
+  credential is locked to its `Sites`: a step types it only on an `https://`
+  page on one of them, and is refused elsewhere with
+  `Diagnosis.Category` `"credential_site_not_allowed"`. Saving and deleting a
+  credential are done in the dashboard. With `WithEffectiveAccount`, a team
+  member of either role lists the account owner's saved credentials — the
+  ones agent tasks in that workspace use — as the same fields, never a value;
+  a workspace you are not a member of answers 403.
 - **`"session_unresponsive"`** joins the `Diagnosis.Category` values and the
   `NoticeReason` values. The session stopped answering automated steps (the live view may still show the page): it had already failed to answer one, and a quick check sent just before the next step got no answer either, so that step was not sent. The step fails
   with `Diagnosis.Category` `"session_unresponsive"` and `Retryable` false, and
@@ -104,16 +93,28 @@ follows [SemVer](https://semver.org/spec/v2.0.0.html).
   the session and launch a new one — sending "continue" will not help. If the
   session answers the check again, steps run as normal. Both fields are plain
   strings, so nothing changes in the types.
-- **`AccountResource.ListCredentials`** — `GET /v1/account/me/credentials`:
-  the `Handle`, `Label`, `Sites`, `IncludeSubdomains` and `CreatedAt` of each
-  saved credential on the account, never the value. Write a handle into an
-  agent task as `{{credential:<handle>}}`, as the text of a type step. Each
-  credential is locked to its `Sites`: a step types it only on an `https://`
-  page on one of them, and is refused elsewhere with
-  `Diagnosis.Category` `"credential_site_not_allowed"`. Saving and deleting a
-  credential are done in the dashboard.
 
-### Migration (2026-10-01)
+### Changed
+
+- **A tap that changed nothing is a failed step, and a turn that stopped
+  because nothing was changing is not `OK`.** A tap the browser made and then
+  saw change nothing on the page now comes back as a `"failure"` with
+  `Diagnosis.Category == "no_effect"`, not as a `"success"`; the agent looks at
+  the page again and tries something else. A tap where whether it changed
+  anything could not be checked is still a `"success"`, now with
+  `Warning.Kind == "effect_unknown"` and a summary that says so. An
+  `AgentMessageResponse` with `NoticeReason == "no_progress"` now always has
+  `OK` false. A `"type"` step the browser could type only part of is a
+  `"failure"`.
+
+### Deprecated
+
+- **`Egress.AttachToSession` and `Egress.GetSessionProxy`.** The server retired
+  `/v1/sessions/:id/proxy`: both answer 410 (`*FeatureUnavailableError`, code
+  `endpoint_retired`) on every deployment. Set `ProxyID` when you create the
+  session.
+
+### Migration
 
 `AgentIntent` gained `Frame`, a slice, and a Go struct that holds a slice
 cannot be compared with `==` or `!=` or used as a map key. Three types lost
