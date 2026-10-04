@@ -430,8 +430,11 @@ type AgentIntent struct {
 	DurationMs       *int `json:"duration_ms,omitempty"`
 	ReadingWordCount *int `json:"reading_word_count,omitempty"`
 	// extract: the text of one element (Selector) or of the whole page (Body
-	// true) — exactly one of the two.
-	Body bool `json:"body,omitempty"`
+	// true) — exactly one of the two. Attribute, with Selector only, reads that
+	// attribute of the element ("href", "src", a "data-…" value) instead of its
+	// text.
+	Body      bool   `json:"body,omitempty"`
+	Attribute string `json:"attribute,omitempty"`
 	// tap_at: the point tapped, in viewport pixels from the top-left corner.
 	X *int `json:"x,omitempty"`
 	Y *int `json:"y,omitempty"`
@@ -814,6 +817,86 @@ func (r *AgentSessionsResource) Message(ctx context.Context, agentSessionID, use
 	return &out, nil
 }
 
+// RunStepsOptions are RunSteps's optional settings. IdempotencyKey, Timeout,
+// OnStep and OnEvent work as on MessageOptions; a key used for a message cannot
+// be reused for a list of steps. ApproveConsequentialActions approves a step a
+// previous RunSteps call stopped at (a "confirmation_required" result): it
+// counts only when that call is the session's latest and steps is the rest of
+// its list from the stopped step on; otherwise the step stops again.
+type RunStepsOptions struct {
+	IdempotencyKey              string
+	ApproveConsequentialActions []ConsequentialActionApproval
+	Timeout                     time.Duration
+	OnStep                      func(step AgentStepEvent)
+	OnEvent                     func(name string, data json.RawMessage)
+}
+
+// RunSteps runs a list of up to 8 steps you write, as written — no AI
+// planning, no read-back, and none of the AI budget used. The steps are the
+// vocabulary a message's Intents use, and they go through the same checks. A
+// step this session cannot run (one outside the vocabulary, an address on a
+// private network or with a user name or password, a key no iPhone keyboard
+// has, a native list, a frame the page did not list or this device cannot act
+// in) is a failed step in Results whose Reason says why;
+// nothing after it is sent, and the steps after it are listed in Intents with
+// no result. A "type" step with text adds to what the field holds; one with an
+// empty Value clears it (RunSteps always sends a type step's value, empty
+// included). A wait that times out does not stop the run. More than 8 steps is
+// a 400 *ValidationError; nothing is cut.
+//
+// The response's Kind is "plan-executed" or "stopped". Pass nil for opts when
+// none is needed. Errors you should expect: 409 *ConflictError (a person has
+// control or the session is in manual mode — nothing ran; TurnInProgress();
+// SessionStatus()), 429 *RateLimitError, 403 *ForbiddenError (the key lacks
+// write), 404 *NotFoundError.
+func (r *AgentSessionsResource) RunSteps(ctx context.Context, agentSessionID string, steps []AgentIntent, opts *RunStepsOptions) (*AgentMessageResponse, error) {
+	var out AgentMessageResponse
+	wire := make([]map[string]any, 0, len(steps))
+	for _, step := range steps {
+		encoded, err := json.Marshal(step)
+		if err != nil {
+			return nil, err
+		}
+		var fields map[string]any
+		if err := json.Unmarshal(encoded, &fields); err != nil {
+			return nil, err
+		}
+		// An empty Value is omitted by its tag, and a type step without one is
+		// not a clear: send it, so an empty type step clears the field.
+		if step.Kind == "interact" && step.Action == "type" {
+			fields["value"] = step.Value
+		}
+		wire = append(wire, fields)
+	}
+	body := map[string]any{"steps": wire}
+	if opts != nil && len(opts.ApproveConsequentialActions) > 0 {
+		body["approve_consequential_actions"] = opts.ApproveConsequentialActions
+	}
+	req := requestOptions{
+		method:        "POST",
+		path:          "/v1/agent-sessions/" + url.PathEscape(agentSessionID) + "/steps",
+		body:          body,
+		out:           &out,
+		eventStream:   true,
+		streamTimeout: AgentMessageStreamTimeout,
+	}
+	if opts != nil {
+		if opts.Timeout > 0 {
+			req.streamTimeout = opts.Timeout
+		}
+		if opts.IdempotencyKey != "" {
+			req.headers = map[string]string{"Idempotency-Key": opts.IdempotencyKey}
+		}
+		if opts.OnStep != nil || opts.OnEvent != nil {
+			req.onFrame = progressDispatcher(opts.OnStep, opts.OnEvent)
+		}
+	}
+	if err := r.client.doEventStream(ctx, req); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // progressDispatcher routes one progress frame to the caller's callbacks.
 func progressDispatcher(onStep func(AgentStepEvent), onEvent func(string, json.RawMessage)) func(string, []byte) {
 	return func(name string, data []byte) {
@@ -874,6 +957,9 @@ type AgentTranscriptEntry struct {
 	// At is the ISO-8601 time the entry was written.
 	At      string        `json:"at"`
 	Intents []AgentIntent `json:"intents,omitempty"`
+	// Origin is "steps" on the one entry a RunSteps call writes (steps you
+	// sent and ran as written, not planned by the agent); empty otherwise.
+	Origin string `json:"origin,omitempty"`
 }
 
 // AgentTranscriptEvent is one item handed to Transcript's callback: the

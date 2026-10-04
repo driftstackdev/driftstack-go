@@ -10,6 +10,16 @@ One change below alters, with no compile error and no runtime error, how a
 struct of yours that embeds `UpdateProfileRequest` is encoded to JSON. If your
 program has one, read **Changed** below first.
 
+### Added (2026-10-04)
+
+- **`AgentIntent.Attribute`: an extract that reads one attribute of an
+  element.** Additive. The server's step vocabulary has let an `extract` with a
+  `Selector` read an attribute (`"href"`, `"src"`, a `"data-…"` value) instead
+  of the element's text since the TypeScript and Python SDKs gained it; the Go
+  struct had no field for it, so a Go program could not send such a step, and
+  `ParsedIntents` dropped it from an answer. Set it on a step you send, and read
+  it on one the answer describes.
+
 ### Added (2026-10-03)
 
 - **`Session.ProxyID`: which of your saved proxies a session runs through.**
