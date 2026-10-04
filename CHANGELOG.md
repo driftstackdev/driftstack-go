@@ -6,11 +6,58 @@ follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-One change below alters, with no compile error and no runtime error, how a
-struct of yours that embeds `UpdateProfileRequest` is encoded to JSON. If your
-program has one, read **Changed** below first.
+## [0.7.0] - 2026-10-04
 
-### Added (2026-10-04)
+v0.7.0 adds to v0.6.0 and removes nothing, and every type that was comparable
+in v0.6.0 still is. Two additions change, with no compile error and no runtime
+error, how a struct of yours that embeds `UpdateProfileRequest`, `Session` or
+`CreateSessionResponse` is encoded to or decoded from JSON. If your program
+has one, read **Changed** below first. Upgrade with
+`go get github.com/driftstackdev/driftstack-go@v0.7.0`.
+
+### Added
+
+- **`AgentSessions.RunSteps(ctx, id, steps, opts)`: run steps you already
+  know, without the AI** (`POST /v1/agent-sessions/{id}/steps`), with
+  `RunStepsOptions`. `steps` is a list of up to 8 `AgentIntent`s, the
+  vocabulary a message's `Intents` use; they run in order, as written, through
+  the same checks a message's steps go through, with no planning, no read-back
+  and none of the AI budget (no `Usage` and no `Answer` on the result). The
+  response's `Kind` is `"plan-executed"` (`Intents`, `Results`, `OK`, and
+  `Notice` / `NoticeReason` when the run ended early for a reason no step
+  says) or `"stopped"` when you called `Stop`. A step the session cannot run —
+  one outside the vocabulary, an address on a private network or carrying a
+  user name or password, a key no iPhone keyboard has, a native list, a frame
+  the page did not list or this device cannot act in — is a failed step in
+  `Results` whose `Reason` says why; nothing after it is sent, and the steps
+  after it are listed in `Intents` with no result. A `"type"` step with text
+  adds to what the field holds; one with an empty `Value` clears it (`RunSteps`
+  always sends a type step's value, empty included). A wait that times out
+  does not stop the run. More than 8 steps is a 400 `*ValidationError`; nothing
+  is cut. `RunStepsOptions.ApproveConsequentialActions` approves a step a
+  previous call stopped at (`"confirmation_required"`); it counts only when
+  that call is the session's latest and `steps` is the rest of its list from
+  the stopped step on. `IdempotencyKey`, `Timeout`, `OnStep` and `OnEvent`
+  work as on `MessageOptions`; a key used for a message cannot be reused here.
+  It needs an account key with `write`, and shares the message rate limit and
+  the running-turns limit with `Message`. A session a person has control of,
+  or one in manual mode, returns a 409 `*ConflictError` and nothing runs. Pass
+  nil for `opts` when none is needed.
+
+- **`AgentTranscriptEntry.Origin`.** `"steps"` on the one transcript entry a
+  `RunSteps` call writes (steps you sent and ran as written, not planned by
+  the agent); empty on every other entry.
+
+- **A turn's `Answer` can name the selector of any control on the page, and
+  is no longer cut at 512 characters.** Asked "what is the selector of the Pay
+  button?" or to list a page's buttons with their selectors, the answer quotes
+  the selectors the agent was shown for the page it ended on (`#pay`).
+  `Answer` is now at most 4,000 characters (it was cut at 512, which could stop
+  inside a selector); a longer one is cut after its last whole line and ends
+  with `… (the rest was cut for length)` on a line of its own. Its line breaks
+  are kept, so a list asked for one control per line comes back one per line;
+  the transcript entry holds the same text on one line. A CSS selector written
+  in the message is used exactly as written.
 
 - **`AgentIntent.Attribute`: an extract that reads one attribute of an
   element.** Additive. The server's step vocabulary has let an `extract` with a
@@ -19,8 +66,6 @@ program has one, read **Changed** below first.
   struct had no field for it, so a Go program could not send such a step, and
   `ParsedIntents` dropped it from an answer. Set it on a step you send, and read
   it on one the answer describes.
-
-### Added (2026-10-03)
 
 - **`Session.ProxyID`: which of your saved proxies a session runs through.**
   Additive. `Sessions.Create`, `Sessions.Get`, `Sessions.List` and
@@ -33,8 +78,10 @@ program has one, read **Changed** below first.
   that could not look it up at that moment, and on an older server.
   `Session.ProxyIDReported` tells those apart: true when the response carried
   the `proxy_id` key (so a nil `ProxyID` means no saved proxy), false when it
-  did not (not reported; never read that as "no proxy"). `Session` now has
-  its own `UnmarshalJSON` to set it.
+  did not (not reported; never read that as "no proxy"). `CreateSessionResponse`
+  gains the same two fields. Both types now have their own `UnmarshalJSON` to
+  set them, which changes how a struct that embeds either is decoded: see
+  **Changed** below.
   Before this, a session started through a proxy did not say which one.
 
 - **On a session whose device supports it, a tap or a wait can name a frame.**
@@ -114,7 +161,7 @@ program has one, read **Changed** below first.
   method, which changes how a struct that embeds it is encoded: see
   **Changed** below.
 
-### Changed (2026-10-03)
+### Changed
 
 - **A struct of yours that embeds `UpdateProfileRequest` is now encoded as
   `UpdateProfileRequest` alone, and your own fields are left out.**
@@ -129,6 +176,50 @@ program has one, read **Changed** below first.
   (`Update UpdateProfileRequest`), which nests the request under that name, or
   write a `MarshalJSON` for your struct that encodes the two parts and joins
   them.
+
+- **A struct of yours that embeds `Session` or `CreateSessionResponse` is now
+  decoded as that type alone, and your own fields are left empty.** Both now
+  have an `UnmarshalJSON` method (it sets `ProxyIDReported`), and
+  `encoding/json` uses a method promoted from an embedded field to decode the
+  whole struct. Nothing stops compiling and no error is returned: decoding
+  `{"id":"ses_1","extra":"x"}` into
+  ``struct { driftstack.Session; Extra string `json:"extra"` }`` sets `ID` and
+  leaves `Extra` empty, where v0.6.0 set both. This reaches you only if you
+  decode such a struct yourself; the SDK's own methods return `*Session` and
+  `*CreateSessionResponse`, which decode as before. To keep your fields, give
+  the field a name (`Session driftstack.Session`), which nests it under that
+  name, or decode the JSON twice, once into each part.
+- **A `"type"` step with an empty `Value` clears the field.** The session
+  deletes what the field holds, one key at a time as a person would, types
+  nothing, and the step's summary says `cleared #email`, never `typed`. To
+  replace what a field holds, send an empty `"type"` and then one with the new
+  text; the agent now plans a replacement that way. A `"type"` step with text
+  still adds to what the field holds. A field that cannot be emptied key by key
+  (over 200 characters, or one whose page puts characters back, such as a fixed
+  prefix or an input mask) is not cleared and the step fails with nothing
+  typed; a session whose browser cannot empty a field refuses the step without
+  sending it, and the turn stops there.
+- **`OK` is false in more cases.** A planned step that would have acted on
+  the page but could not be sent is now a failed step
+  (`Diagnosis.Category` `"invalid_request"`) that halts its plan like any
+  failed step; the steps planned after it are listed in `Intents` with no
+  result instead of disappearing, and `OK` stays false unless a later step
+  acts on the page. `OK` is also false when the turn delivered nothing — no
+  step that changed the page or scrolled it, no screenshot and no `Answer` —
+  unless the message only asked to wait, and when an English message asks for
+  more things to be done than distinct steps that changed the page ran. Every
+  entry of `Results` can then be a success: read `Notice`, or
+  `AnswerUnavailable` when the answer asked for could not be read.
+- **`Recipes.Create` leaves out steps that never ran.** A recipe's
+  `IntentLog` no longer includes a step the agent planned but could not send,
+  nor the steps planned after it in that plan.
+- **The `"refuse"` result is documented in full.** No step was planned or run
+  and the session stays active, but the turn is still recorded: the refusal is
+  added to the transcript, and the tokens used to read the message are charged
+  to the session's token budget like any other turn (not when the AI was
+  briefly unavailable or the session stopped answering). Resending cannot
+  repeat anything on the page, but each resend is a new turn; use a new
+  idempotency key. Nothing about the response changed.
 
 ## [0.6.0] - 2026-10-03
 
