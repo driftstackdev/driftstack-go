@@ -415,9 +415,11 @@ type AgentIntent struct {
 	// Frame, only on a "dom_snapshot" capture, a whole-page "extract"
 	// (Body true, no Selector) or an "interact" that types — and, on a session
 	// whose device can act inside a frame, an "interact" that taps and a
-	// "selector_visible" "wait" (never a scroll or a key press): the embedded
-	// document (an iframe) that was read, typed or tapped into, or waited in
-	// instead of the page, as a path of positions — its place among the page's
+	// "selector_visible" "wait" (never a scroll or a key press), and on one
+	// whose device can read an element inside a frame, an "extract" with a
+	// Selector (and an Attribute): the embedded document (an iframe) that was
+	// read, typed or tapped into, or waited in instead of the page, as a path
+	// of positions — its place among the page's
 	// frames, then its place inside that frame for a nested one, outermost
 	// first. Positions follow the order the browser created the frames, which
 	// is not always the order of the iframe tags in the markup. Empty: the
@@ -1196,6 +1198,50 @@ func (r *AgentSessionsResource) Stop(ctx context.Context, agentSessionID string)
 		method: "POST",
 		path:   "/v1/agent-sessions/" + url.PathEscape(agentSessionID) + "/stop",
 		body:   struct{}{},
+		out:    &out,
+	}
+	if err := r.client.do(ctx, req); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// AgentSessionFrame is one embedded frame (iframe) of the session's page, as
+// ListFrames answers it.
+type AgentSessionFrame struct {
+	// Path is the frame's position as the browser numbers it now, outermost
+	// first ([0], or [0, 1] for a frame inside frame 0): the frame a step names.
+	Path []int `json:"path"`
+	// Address is the host and path of the document the frame holds (no query,
+	// no fragment), or nil when it holds no web document or its address cannot
+	// be shown as its own.
+	Address *string `json:"address"`
+	// Name is the frame's name (its window.name), on one line and cut to 60
+	// characters (a longer one ends "…"), or nil when it has none.
+	Name      *string `json:"name"`
+	Displayed bool    `json:"displayed"`
+	ZeroSize  bool    `json:"zero_size"`
+}
+
+// AgentSessionFrameList is what ListFrames answers.
+type AgentSessionFrameList struct {
+	Frames []AgentSessionFrame `json:"frames"`
+	// Truncated says the browser stopped listing before the page's last frame.
+	Truncated bool `json:"truncated"`
+}
+
+// ListFrames returns the embedded frames (iframes) of the page the session's
+// browser is on, as it numbers them now (GET /v1/agent-sessions/{id}/frames):
+// each frame's Path is the frame a step names in RunSteps. A read; nothing on
+// the page changes. The numbering is the page's at this moment, so list again
+// after a step that changes the page — RunSteps itself refuses a path the page
+// does not have when the step is sent. A 409 carries a reason:
+// session_not_running, frames_unsupported, or frames_not_listed (try again).
+func (r *AgentSessionsResource) ListFrames(ctx context.Context, agentSessionID string) (*AgentSessionFrameList, error) {
+	var out AgentSessionFrameList
+	req := requestOptions{
+		method: "GET",
+		path:   "/v1/agent-sessions/" + url.PathEscape(agentSessionID) + "/frames",
 		out:    &out,
 	}
 	if err := r.client.do(ctx, req); err != nil {

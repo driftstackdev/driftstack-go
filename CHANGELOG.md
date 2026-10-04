@@ -6,6 +6,22 @@ follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **`AgentSessions.ListFrames(ctx, id)`: the embedded frames of the session's
+  page, as its browser numbers them now** (`GET /v1/agent-sessions/{id}/frames`).
+  Each `AgentSessionFrame` has the `Path` a step's `frame` names in
+  `RunSteps`, the host and path of the document it holds (`Address`, never a
+  query or fragment, or nil), its `Name` (one line, at most 60 characters) or
+  nil, `Displayed` and `ZeroSize`;
+  `AgentSessionFrameList.Truncated` says the browser stopped listing early. A
+  read: nothing on the page changes. The server now checks a `RunSteps` frame
+  step against the browser's own list for that call — any path it lists, with
+  your selector as written — and a frame step after one that may change the
+  page, or after a wait, against a fresh list right before it is sent. On a
+  session whose browser can read an element inside a frame, an `extract` step
+  with a `Selector` (and an `Attribute`) may carry `Frame` too.
+
 ## [0.7.0] - 2026-10-04
 
 v0.7.0 adds to v0.6.0 and removes nothing, and every type that was comparable
