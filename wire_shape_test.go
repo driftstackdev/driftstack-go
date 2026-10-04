@@ -116,3 +116,64 @@ func TestWireShape_SessionPurpose_CanonicalValues(t *testing.T) {
 		}
 	}
 }
+
+// 2026-10-03 — proxy_id on a session is three things on the wire: a proxy id,
+// null (started without a saved proxy), or an absent key (not reported). A
+// *string alone reads the last two as nil, so ProxyIDReported carries the
+// difference, for a Session decoded alone and inside a list page.
+func TestWireShape_Session_ProxyIDTellsNoProxyFromNotReported(t *testing.T) {
+	t.Parallel()
+	const base = `"id": "ses_00000000-0000-4000-8000-000000000001",
+		"account_id": "acc_00000000-0000-4000-8000-000000000002",
+		"api_key_id": "key_00000000-0000-4000-8000-000000000003",
+		"status": "ready",
+		"archetype": "iphone16pro_ios18_6_safari18_6",
+		"purpose": "production_customer",
+		"label": null,
+		"metadata": null,
+		"egress_capabilities": null,
+		"egress_capability_report": null,
+		"created_at": "2026-10-03T12:00:00.000Z",
+		"updated_at": "2026-10-03T12:00:00.000Z",
+		"last_state_at": null,
+		"destroyed_at": null`
+	const proxy = "6f1c2a9e-4b7d-4c1e-9a3f-2d8e5b6c7a10"
+	cases := []struct {
+		name         string
+		extra        string
+		wantID       *string
+		wantReported bool
+	}{
+		{"a proxy", `, "proxy_id": "` + proxy + `"`, stringPtr(proxy), true},
+		{"no proxy (null)", `, "proxy_id": null`, nil, true},
+		{"not reported (absent)", ``, nil, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			raw := `{` + base + tc.extra + `}`
+			var one Session
+			if err := json.Unmarshal([]byte(raw), &one); err != nil {
+				t.Fatal(err)
+			}
+			var page SessionsListPage
+			if err := json.Unmarshal([]byte(`{"data":[`+raw+`],"has_more":false,"next_cursor":null}`), &page); err != nil {
+				t.Fatal(err)
+			}
+			for where, got := range map[string]Session{"session": one, "list page": page.Data[0]} {
+				if got.ProxyIDReported != tc.wantReported {
+					t.Errorf("%s: ProxyIDReported = %v, want %v", where, got.ProxyIDReported, tc.wantReported)
+				}
+				if (got.ProxyID == nil) != (tc.wantID == nil) ||
+					(got.ProxyID != nil && *got.ProxyID != *tc.wantID) {
+					t.Errorf("%s: ProxyID = %v, want %v", where, got.ProxyID, tc.wantID)
+				}
+				// The custom decoder must not lose the other fields.
+				if got.ID != "ses_00000000-0000-4000-8000-000000000001" || got.Status != "ready" ||
+					!got.CreatedAt.Equal(time.Date(2026, 10, 3, 12, 0, 0, 0, time.UTC)) {
+					t.Errorf("%s: other fields not decoded: %+v", where, got)
+				}
+			}
+		})
+	}
+}

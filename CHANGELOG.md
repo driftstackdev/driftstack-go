@@ -12,6 +12,21 @@ program has one, read **Changed** below first.
 
 ### Added (2026-10-03)
 
+- **`Session.ProxyID`: which of your saved proxies a session runs through.**
+  Additive. `Sessions.Create`, `Sessions.Get`, `Sessions.List` and
+  `Profiles.Launch` now report the saved proxy the session's traffic goes out
+  through: the `ProxyID` the create named, or the proxy the launched profile
+  is bound to (on a team, a session an admin started with a proxy saved on
+  the admin's own account reports that admin's proxy). It is kept after the
+  session ends. `nil` for a session started without a saved proxy, and when it
+  is not reported: on a read by a team member without admin role, on a read
+  that could not look it up at that moment, and on an older server.
+  `Session.ProxyIDReported` tells those apart: true when the response carried
+  the `proxy_id` key (so a nil `ProxyID` means no saved proxy), false when it
+  did not (not reported; never read that as "no proxy"). `Session` now has
+  its own `UnmarshalJSON` to set it.
+  Before this, a session started through a proxy did not say which one.
+
 - **On a session whose device supports it, a tap or a wait can name a frame.**
   Additive, and nothing changes on any other session or in the types. On a
   session whose device can act inside an embedded frame (an iframe), `Frame`

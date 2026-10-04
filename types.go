@@ -231,6 +231,41 @@ type Session struct {
 	UpdatedAt              time.Time      `json:"updated_at"`
 	LastStateAt            *time.Time     `json:"last_state_at"`
 	DestroyedAt            *time.Time     `json:"destroyed_at"`
+	// ProxyID is the saved proxy this session's traffic goes out through: the
+	// create's ProxyID, or the proxy the launched profile is bound to. Usually
+	// one of the account's own proxies (Egress.ListProxies); a session a team
+	// admin started with a proxy saved on the admin's own account reports that
+	// admin's proxy. Set from the create response onwards and kept after the
+	// session ends.
+	//
+	// nil means one of two things, and ProxyIDReported tells them apart: with
+	// ProxyIDReported true the session was started without a saved proxy (the
+	// server sent proxy_id: null); with it false the proxy was not reported (the
+	// key was absent: a read by a team member without admin role, a read that
+	// could not look it up at that moment, or an older server). Never treat a
+	// nil ProxyID with ProxyIDReported false as "no proxy".
+	ProxyID *string `json:"proxy_id,omitempty"`
+	// ProxyIDReported is true when the response carried the proxy_id key,
+	// null or not; see ProxyID. Set when a Session is decoded from JSON.
+	ProxyIDReported bool `json:"-"`
+}
+
+// UnmarshalJSON decodes a Session and records whether the proxy_id key was
+// present (ProxyIDReported), which a *string alone cannot: an absent key and
+// a null both leave ProxyID nil.
+func (s *Session) UnmarshalJSON(data []byte) error {
+	type plainSession Session
+	var decoded plainSession
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(data, &keys); err != nil {
+		return err
+	}
+	_, decoded.ProxyIDReported = keys["proxy_id"]
+	*s = Session(decoded)
+	return nil
 }
 
 // EgressCapabilities is what a session reports about its SOCKS5 proxy:

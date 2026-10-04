@@ -310,9 +310,20 @@ type AgentMessageResponse struct {
 	Results            []json.RawMessage `json:"results,omitempty"`
 	OK                 bool              `json:"ok,omitempty"`
 	ClarifyingQuestion string            `json:"clarifying_question,omitempty"`
-	// RefuseReason says why the agent will not do this. A refuse can also
-	// mean the AI was briefly unavailable; the session stays active and you
-	// can send the message again. When the refusal was not the agent's choice,
+	// RefuseReason says why the message was refused. On a "refuse" no step was
+	// planned or run and nothing on the page was read back; the session stays
+	// active, and it is a normal answer, not an error. The turn is still
+	// recorded: the refusal is added to the transcript, and the tokens used to
+	// read the message are charged to the session's token budget like any
+	// other turn (not when the AI was briefly unavailable or the session
+	// stopped answering). It happens when the message asks for something the
+	// Acceptable Use Policy does not allow (refused the same way every time),
+	// when the AI declines it on its own judgement (which can vary: sending it
+	// again, or rewording it to say plainly what to read or do, usually
+	// works), or when the AI was briefly unavailable (send it again). No step
+	// ran, so resending cannot repeat anything on the page, but each resend is
+	// a new turn and is charged the same way; use a new idempotency key. When
+	// the refusal was not the agent's choice,
 	// NoticeReason says why in one word (see there).
 	RefuseReason string `json:"refuse_reason,omitempty"`
 	// Answer is the agent's answer to the question the turn asked, read back
