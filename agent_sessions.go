@@ -666,7 +666,12 @@ type CreateOptions struct {
 // Errors: 429 *ConcurrencyLimitError (your plan's concurrent-session limit),
 // 409 *ProfileInUseError / *DeviceUnavailableError / *StorageQuotaExceededError, 422
 // *ProxyValidationFailedError, 403 *ForbiddenError (no AI on the plan, or an
-// Opus model without your own key — RequiresOwnKey), 404 *NotFoundError.
+// Opus model without your own key — RequiresOwnKey), 404 *NotFoundError,
+// 503 *FeatureUnavailableError with Problem["code"] == "dispatch_no_live_node"
+// (no machine could take a new session just then; nothing was created and
+// nothing is stored under the idempotency key, so wait
+// Problem["retry_after_seconds"] — also the Retry-After header — and call
+// Create again with the same key).
 func (r *AgentSessionsResource) Create(ctx context.Context, body *CreateAgentSessionRequest, opts *CreateOptions) (*AgentSession, error) {
 	var out AgentSession
 	if body == nil {
