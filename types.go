@@ -231,6 +231,13 @@ type Session struct {
 	UpdatedAt              time.Time      `json:"updated_at"`
 	LastStateAt            *time.Time     `json:"last_state_at"`
 	DestroyedAt            *time.Time     `json:"destroyed_at"`
+	// ArchetypeSource — where Archetype came from: "explicit" (the create
+	// named it), "profile" (the launched profile's device) or "random" (the
+	// create named neither, so the session runs as a fresh visitor on a random
+	// current iPhone the plan includes; drawn once at create, never changed).
+	// Nil on a session created before the server recorded it, and from older
+	// servers.
+	ArchetypeSource *string `json:"archetype_source,omitempty"`
 	// ProxyID is the saved proxy this session's traffic goes out through: the
 	// create's ProxyID, or the proxy the launched profile is bound to. Usually
 	// one of the account's own proxies (Egress.ListProxies); a session a team
@@ -285,9 +292,10 @@ type EgressCapabilities struct {
 }
 
 // CreateSessionRequest. All fields are optional; leave empty to let the
-// server default (Archetype → your tier's default device: the locked
-// archetype on tiers entitled to every device, the newest iPhone 13 on the
-// free tier; Purpose → DefaultSessionPurpose, BehavioralProfile →
+// server default (Archetype → a random current iPhone your plan includes,
+// different from one session to the next, unless ProfileID names a profile,
+// whose device is used — the session's ArchetypeSource says which;
+// Purpose → DefaultSessionPurpose, BehavioralProfile →
 // DefaultBehavioralProfile).
 type CreateSessionRequest struct {
 	Archetype string         `json:"archetype,omitempty"`

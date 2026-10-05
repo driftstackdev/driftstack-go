@@ -8,6 +8,81 @@ follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **A tap that opened a JavaScript dialog says so: the `"dialog_opened"` step
+  warning.** Additive. `AgentStepWarning` gains `Dialog string`
+  (`json:"dialog,omitempty"`). A tap that opened an alert, a confirm, a prompt
+  or a leave-page prompt — none was open when it was sent, one is open after —
+  is a `"success"` with `Warning.Kind == "dialog_opened"` and `Dialog` its
+  kind (`"alert"`, `"confirm"`, `"prompt"` or `"beforeunload"`; empty when the
+  session did not report it) instead of `"effect_unknown"`. Neither the
+  warning nor `Summary` carries the dialog's text. Answer the dialog with a
+  `"dialog"` step; do not tap again.
+
+- **The upload answer's type, with its new `Code`: `AgentSessionFileUpload`
+  and `AgentSessionFileHandle`.** Additive. The 200 answer of
+  `POST /v1/agent-sessions/{id}/files` may carry a `Code`
+  string with `Status` `"error"`. The known values: `upload_origin_changed` — the session's page moved to another
+  site after the upload started, so the file was not kept; upload it again on
+  the page that needs it. `upload_no_origin` — the session's page has no web
+  address yet; open the page first, then upload. Nothing was stored in either
+  case. More codes may be added, so branch on the ones you know and show
+  `Reason` otherwise. Any other failure leaves `Code` empty.
+
+- **`AgentSessionFrame.URL`, `URLMasked` and `URLTruncated`: a frame's address
+  with its query.** Additive; `Address` is unchanged. `URL` is
+  scheme://host[:port]/path?query (never the fragment), nil where `Address`
+  is nil, except a frame on the top page's own host and path whose `URL`
+  differs from the page's (another query): `Address` is nil there and `URL` is
+  set. Several hosted fields from one provider often share one
+  host and path and differ only in the query (`?componentName=cardNumber`
+  against `?componentName=cardExpiry`), so `Address` alone shows them as one
+  value; take a `FrameBySrc` text from `URL` to target one. The value of every
+  credential-style query parameter (`client_secret`, `token`, `password` and
+  the like) reads `REDACTED` (`URLMasked`). `URL` is at most 1000 characters
+  (`URLTruncated` when cut). Driftstack does not store it.
+- **Answering a JavaScript dialog: the `dialog` step.** Additive. A page's
+  alert, confirm, prompt or leave-page prompt blocks every other step until it
+  is answered. `AgentIntent` gains `Text *string` beside the existing `Action`
+  (`"accept"` or `"dismiss"` on a `"dialog"` step; `Text`, at most 1,000
+  characters, with `"accept"` only, is typed into a prompt first — a pointer,
+  so an empty answer is sent and no answer is not), and `AgentIntentResult`
+  gains `Dialog *AgentDialogStepResult` (`Handled`, `Kind` when known,
+  `Action` — never the text). With no dialog open the step succeeds with
+  `Handled` false. `Text` on a dismiss, or for an open dialog that is not a
+  prompt, is a 400 on `RunSteps`. Only on a session whose browser can answer
+  dialogs; on any other the step fails unsent. The text typed into a prompt is
+  never stored or returned: every copy of the step after it is sent shows
+  `{{prompt text not stored}}` in `Text`, and a step carrying that marker is
+  never answered. An `"accept"` of a `confirm` or a leave-page prompt whose
+  message names a purchase, a payment or an account deletion stops for
+  approval (`confirmation_required`) like such a tap.
+
+- **A step's frame can be found by its address or name when it runs:
+  `FrameBySrc` and `FrameByName`.** Additive: `Frame []int` and every
+  existing `FrameLevel` encode byte for byte as before. A frame's number goes
+  stale when the page's scripts add or remove frames between `ListFrames` and
+  the step, so a level of `FramePath` in a step sent with `RunSteps` may now be
+  `FrameBySrc("js.example-pay.com")` (the frame whose address, or whose
+  iframe's `src`, contains that text; 1 to 512 characters) or
+  `FrameByName("card-number")` (the frame whose iframe's `name` is exactly that
+  text; 1 to 256 characters), encoded as `{"src": …}` / `{"name": …}`.
+  `FrameLevel` gains `Src` and `Name` and `IsQuery()`; an answer carrying such
+  a level is read into `FramePath`. The browser finds the frame when the step
+  runs, and exactly one frame must match: none, or more than one, and the step
+  fails with nothing done. Only a session whose browser can find a frame this
+  way runs such a step; on any other it fails unsent ("this browser cannot
+  find a frame by its address or name yet"). A saved credential is never typed
+  into a frame named this way.
+- **`Archetype` on `CreateAgentSessionRequest`, and `Archetype` /
+  `ArchetypeSource` on `AgentSession` and `ArchetypeSource` on `Session`.** A
+  session created without a profile or archetype now runs as a fresh visitor
+  on a random current iPhone the plan includes, a different one from session
+  to session (until now every such session was the same default device); set
+  `Archetype` to pin a device, or `ProfileID` to keep an identity between
+  runs. The session says what it got: `Archetype` names the device and
+  `ArchetypeSource` is `"explicit"`, `"profile"` or `"random"` (nil on
+  sessions created before the server recorded it, and from older servers).
+
 - **`AgentSessions.ListFrames(ctx, id)`: the embedded frames of the session's
   page, as its browser numbers them now** (`GET /v1/agent-sessions/{id}/frames`).
   Each `AgentSessionFrame` has the `Path` a step's `frame` names in
@@ -21,6 +96,75 @@ follows [SemVer](https://semver.org/spec/v2.0.0.html).
   page, or after a wait, against a fresh list right before it is sent. On a
   session whose browser can read an element inside a frame, an `extract` step
   with a `Selector` (and an `Attribute`) may carry `Frame` too.
+- **An `extract` step can read what an element holds NOW: `AgentIntent.Property`.**
+  One of `value`, `checked`, `selected`, `selectedIndex`, `outerHTML`,
+  `innerHTML`, `textContent`, `name`, `id`, `type`, `autocomplete`,
+  `placeholder`, `disabled`, `readOnly`, `required`, with a `Selector` only
+  (never with an `Attribute` or `Body`; any other name is a 400). An attribute
+  is what the page's markup said — `Attribute: "value"` on a field someone
+  typed into reads the markup's starting value — and a property is what the
+  field holds now. The step result carries it in `AgentIntentResult.Value`, a
+  `json.RawMessage`: a string; a boolean for `checked`, `selected`,
+  `disabled`, `readOnly`, `required`; a number for `selectedIndex`; `null`
+  when the element has no such property; nil on every other step.
+  `ValueTruncated` is true when a string was cut to its first 100,000 UTF-16
+  code units. Driftstack returns the value once and never stores it: the
+  transcript, a replay of an Idempotency-Key and the logs carry the step
+  without it. Only on a session whose browser can read a live property; on any
+  other the step fails unsent ("this browser cannot read a field’s live value
+  yet").
+- **A read by selector that matched no element is a failed step**
+  (`element_not_found`, its reason naming the selector and, inside a frame,
+  the frame), never a success with nothing in it.
+
+- **`Diagnosis.Category == "dialog_open"`** (documented on
+  `AgentFailureDiagnosis`; additive — `Category` is a `string` and the set was
+  always open, so no code changes). A step a page's open JavaScript dialog (an
+  alert, a confirm, a prompt or a leave-page prompt) stopped is a failed step
+  with this category: the dialog is still waiting for an answer, so the step
+  could not run, and the session is healthy. If the step was a tap or typing,
+  that input WAS delivered — the dialog is what it opened — so `Retryable` is
+  false and the step is not to be repeated; a read, a wait or a navigation
+  never ran and carries `Retryable` true for once the dialog is answered. The
+  turn stops on the row, and `Reason` says so in words; it never carries the
+  dialog's text. Answer the dialog with a `"dialog"` step (see above), or in
+  the live view, then continue. Sessions whose browser does not yet report an open
+  dialog go on failing such a step the way they did before.
+
+- **`AgentIntent.FramePath` and `FrameLevel`: a frame inside a shadow root,
+  named by its iframe's selector.** Additive: `Frame` (`[]int`) is unchanged,
+  and a program that sets or reads positions builds and runs as before. A frame
+  whose iframe sits inside a shadow root (a web component's own markup) has no
+  position among the page's frames, so on a session whose browser can enter
+  such a frame a level of its path is a string: the selector of that iframe
+  element, with `>>>` stepping into a shadow root, 1 to 1024 characters. The
+  AI is shown such frames when it looks at the page, and a step you send with
+  `RunSteps` may name one by that selector path; `ListFrames` lists numbered
+  frames only for now. `FramePath` (`[]FrameLevel`) holds every path level
+  by level — `FrameAt(0)`, `FrameBySelector("checkout-form >>> iframe")`. A
+  step read from an answer holds its path in exactly one of them: `Frame` when
+  every level is a position (read exactly as before), `FramePath` when a level
+  is a selector, so editing `Frame` on a step you read and sending it back
+  sends the edit. On a step you send, `FramePath` is sent when it is set, and
+  `Frame` otherwise; both set to different paths, a negative position, or
+  `FrameBySelector("")` is an encoding error rather than a path the server
+  would read as another frame. A step naming a selector level the browser's own
+  list of the page's frames does not hold, or any on a session whose browser
+  cannot enter such a frame, is a failed row and nothing is sent. `FrameLevel` is comparable; `AgentIntent`
+  already was not. As before, decoding into an `AgentIntent` that already
+  holds values keeps the fields the JSON does not name.
+
+### Fixed
+
+- **The package Quickstart (`doc.go`, the pkg.go.dev landing page) runs as
+  written on hosted Driftstack.** It called `client.Sessions.Create(ctx, nil)`,
+  which hosted Driftstack refuses with a 422 `*ProxyRequiredError` (every
+  session goes out through one of your saved proxies), and then
+  `client.Sessions.Navigate`, which answers 503 on every hosted session. It now
+  creates an agent session with `ProxyID`, waits for `IsReady`, runs a
+  navigate and an extract with `AgentSessions.RunSteps`, and closes the session
+  with a `defer` (returning on an error past that point, so the close runs).
+  No code changed.
 
 ## [0.7.0] - 2026-10-04
 

@@ -79,6 +79,16 @@ type AgentSession struct {
 	// a session with no profile. Lets a second computer show a profile as
 	// running. Absent from older servers.
 	ProfileID *string `json:"profile_id"`
+	// Archetype — the device profile this session runs (an id from
+	// client.Archetypes), fixed for the session's lifetime. Nil on a session
+	// created before the server recorded it, and from older servers.
+	Archetype *string `json:"archetype,omitempty"`
+	// ArchetypeSource — where that device came from: "explicit" (the create's
+	// Archetype), "profile" (the profile it runs) or "random" (the create named
+	// neither, so the session runs as a fresh visitor on a random current
+	// iPhone the plan includes; drawn once at create, never changed). Nil on a
+	// session created before the server recorded it, and from older servers.
+	ArchetypeSource *string `json:"archetype_source,omitempty"`
 	// PairModeState is nil unless the session is a desktop-app "pair"
 	// session, where it says whether a person has taken over from the AI.
 	//
@@ -203,6 +213,13 @@ type CreateAgentSessionRequest struct {
 	// Driftstack's included AI, Create returns a 403 *ForbiddenError whose
 	// RequiresOwnKey() is true.
 	Model string `json:"model,omitempty"`
+	// Archetype is the device profile to run: an id from client.Archetypes.List.
+	// Empty string omits it: the session runs the profile's device when
+	// ProfileID names one, else a random current iPhone your plan includes
+	// (ArchetypeSource "random" on the session), different from one session to
+	// the next. An id your plan does not include is refused with a 403
+	// (device_not_on_plan). An explicit value wins over the profile's.
+	Archetype string `json:"archetype,omitempty"`
 	// Attach a saved profile (persistent browser identity) so the session
 	// resumes its stored state + saves back on end. Must be an owned profile id
 	// (unknown/not-owned → 404); a profile can have one live session at a time
@@ -423,8 +440,24 @@ type AgentIntent struct {
 	// frames, then its place inside that frame for a nested one, outermost
 	// first. Positions follow the order the browser created the frames, which
 	// is not always the order of the iframe tags in the markup. Empty: the
-	// page itself.
+	// page itself. Frame holds a path of positions only; a path that names a
+	// frame inside a shadow root is in FramePath, and Frame is then empty.
 	Frame []int `json:"frame,omitempty"`
+	// FramePath is the same path, level by level, including a level that is
+	// not a position: a frame whose iframe sits inside a shadow root (a web
+	// component's own markup) has none, and is named instead by the selector
+	// of its iframe element — " >>> " steps into a shadow root, as in
+	// FrameBySelector("checkout-form >>> iframe"). Only a session whose browser
+	// can enter such a frame runs one; ListFrames lists numbered frames only
+	// for now. In a step you send with RunSteps, a level may also find its
+	// frame by its address or name when the step runs — FrameBySrc and
+	// FrameByName — on a session whose browser can find a frame that way. On an
+	// answer it is set only for such a path, and Frame is then empty; a path
+	// of positions is in Frame alone, exactly as before FramePath existed. On
+	// a step you send, set Frame or FramePath (FramePath is sent when it is
+	// set; both set to different paths is an encoding error). Encoded as the
+	// one "frame" field (see FrameLevel).
+	FramePath []FrameLevel `json:"-"`
 	// scroll: Direction is "up" | "down".
 	Direction string `json:"direction,omitempty"`
 	AmountPx  *int   `json:"amount_px,omitempty"`
@@ -434,12 +467,42 @@ type AgentIntent struct {
 	// extract: the text of one element (Selector) or of the whole page (Body
 	// true) — exactly one of the two. Attribute, with Selector only, reads that
 	// attribute of the element ("href", "src", a "data-…" value) instead of its
-	// text.
+	// text. Property, with Selector only and never with Attribute or Body,
+	// reads what the element holds NOW — one of "value", "checked",
+	// "selected", "selectedIndex", "outerHTML", "innerHTML", "textContent",
+	// "name", "id", "type", "autocomplete", "placeholder", "disabled",
+	// "readOnly", "required" — into the result's Value; any other name is a
+	// 400. Only on a session whose browser can read a live property; on any
+	// other the step fails unsent.
 	Body      bool   `json:"body,omitempty"`
 	Attribute string `json:"attribute,omitempty"`
+	Property  string `json:"property,omitempty"`
 	// tap_at: the point tapped, in viewport pixels from the top-left corner.
 	X *int `json:"x,omitempty"`
 	Y *int `json:"y,omitempty"`
+	// dialog: answers the JavaScript dialog the page has open (an alert, a
+	// confirm, a prompt, or a page asking whether to leave it). Action is
+	// "accept" (OK) or "dismiss" (Cancel). Text, with "accept" only and only
+	// when the open dialog is a prompt, is typed into its field first (at most
+	// 1,000 UTF-16 code units); nil sends none, and a pointer to "" types an
+	// empty answer. POST /steps answers 400 for Text on a "dismiss" or for an
+	// open dialog that is not a prompt. Only on a session whose browser can
+	// answer dialogs; on any other the step fails unsent. Text is never stored
+	// or returned: a step read back from any answer carries
+	// "{{prompt text not stored}}" in its place, and is never answered again.
+	Text *string `json:"text,omitempty"`
+}
+
+// AgentDialogStepResult is what a "dialog" step did. Handled is true when a
+// dialog was open and was answered, and false when none was open, so nothing
+// was answered (the step still succeeded). Kind is the dialog answered
+// ("alert", "confirm", "prompt" or "beforeunload") when the session knew it,
+// and empty otherwise. Action is the answer given: "accept" or "dismiss". It
+// never carries the text typed into a prompt.
+type AgentDialogStepResult struct {
+	Handled bool   `json:"handled"`
+	Kind    string `json:"kind,omitempty"`
+	Action  string `json:"action"`
 }
 
 // AgentFailureDiagnosis is the machine-readable companion to a failed step's
@@ -447,8 +510,15 @@ type AgentIntent struct {
 // "condition_not_met", "capture_failed", "scroll_failed", "session_error",
 // "invalid_request", "result_too_large", "element_covered",
 // "target_unverified", "credential_site_not_allowed", "session_unresponsive",
-// "no_effect", "unknown", and more over time): treat a value you do not
-// recognise as "unknown".
+// "no_effect", "dialog_open", "unknown", and more over time): treat a value you
+// do not recognise as "unknown".
+// "dialog_open" means the page has a JavaScript dialog open (an alert, a
+// confirm, a prompt or a leave-page prompt) that is still waiting for an
+// answer, so the step could not run; the session is healthy. A tap or typing
+// WAS delivered (the dialog is what it opened) and is not to be repeated
+// (Retryable false); a read, a wait or a navigation never ran and can be sent
+// again once the dialog is answered (Retryable true). Reason never carries the
+// dialog's text.
 // "no_effect" means a tap WAS made and nothing on the page changed in
 // response: whatever the step was for did not happen; look at the page and try
 // something else.
@@ -476,14 +546,20 @@ type AgentFailureDiagnosis struct {
 // a tap was made, and whether it changed anything on the page could not be
 // checked — do not count the step as having done what it was for until the
 // page shows it. (A tap known to have changed nothing is a "failure" with
-// Diagnosis.Category "no_effect", never a success.)
+// Diagnosis.Category "no_effect", never a success.) And "dialog_opened": a tap
+// was made, and the page opened a JavaScript dialog after it, where none was
+// open before; Dialog is which one ("alert", "confirm", "prompt" or
+// "beforeunload") when the session reported it. Do not tap again: answer the
+// dialog with a "dialog" step. Summary never carries the dialog's text.
 type AgentStepWarning struct {
 	Kind   string `json:"kind"`
 	Status *int   `json:"status,omitempty"`
+	Dialog string `json:"dialog,omitempty"`
 }
 
 // AgentIntentResult is the outcome of one step. Kind is "success" (Summary,
-// CaptureID for a capture, and Warning when there is something worth knowing),
+// CaptureID for a capture, Warning when there is something worth knowing, and
+// Value with ValueTruncated for an "extract" with a Property),
 // "failure" (Reason, and Diagnosis on current servers) or
 // "confirmation_required": the agent stopped BEFORE a purchase, a payment or
 // an account deletion and is waiting for your approval (Category,
@@ -492,15 +568,27 @@ type AgentStepWarning struct {
 // Kind and Category are open sets. It holds an AgentIntent, so like that type
 // it cannot be compared with == or used as a map key.
 type AgentIntentResult struct {
-	Kind        string                 `json:"kind"`
-	Intent      AgentIntent            `json:"intent"`
-	Summary     string                 `json:"summary,omitempty"`
-	CaptureID   string                 `json:"captureId,omitempty"`
-	Warning     *AgentStepWarning      `json:"warning,omitempty"`
-	Reason      string                 `json:"reason,omitempty"`
-	Diagnosis   *AgentFailureDiagnosis `json:"diagnosis,omitempty"`
-	Category    string                 `json:"category,omitempty"`
-	MatchedText string                 `json:"matchedText,omitempty"`
+	Kind      string            `json:"kind"`
+	Intent    AgentIntent       `json:"intent"`
+	Summary   string            `json:"summary,omitempty"`
+	CaptureID string            `json:"captureId,omitempty"`
+	Warning   *AgentStepWarning `json:"warning,omitempty"`
+	// Value is what an "extract" with a Property read, as JSON: a string, a
+	// number ("selectedIndex"), true or false ("checked", "selected",
+	// "disabled", "readOnly", "required"), or null when the element has no
+	// such property. Nil on every other step — and on a replay of an
+	// Idempotency-Key: Driftstack returns the value once and never stores it.
+	// ValueTruncated is true when a string was cut to its first 100,000
+	// UTF-16 code units.
+	Value          json.RawMessage        `json:"value,omitempty"`
+	ValueTruncated *bool                  `json:"value_truncated,omitempty"`
+	Reason         string                 `json:"reason,omitempty"`
+	Diagnosis      *AgentFailureDiagnosis `json:"diagnosis,omitempty"`
+	Category       string                 `json:"category,omitempty"`
+	MatchedText    string                 `json:"matchedText,omitempty"`
+	// Dialog is set only on the success result of a "dialog" step: whether a
+	// dialog was answered, which kind, and how.
+	Dialog *AgentDialogStepResult `json:"dialog,omitempty"`
 }
 
 // ParsedResults decodes Results into typed step outcomes.
@@ -1216,6 +1304,21 @@ type AgentSessionFrame struct {
 	// no fragment), or nil when it holds no web document or its address cannot
 	// be shown as its own.
 	Address *string `json:"address"`
+	// URL is the same document's address with its query:
+	// scheme://host[:port]/path?query, never the fragment. The value of every
+	// credential-style query parameter (client_secret, token, password and the
+	// like) reads "REDACTED"; names, order and every other value are kept. Nil
+	// where Address is nil, except a frame on the top page's own host and path
+	// whose URL differs from the page's (another query): Address is nil there
+	// and URL is set. Several hosted fields from one provider
+	// often share one host and path, and the query is what tells them apart:
+	// take a FrameBySrc text from it. At most 1000 characters.
+	URL *string `json:"url"`
+	// URLMasked says a credential-style query parameter in URL reads "REDACTED".
+	URLMasked bool `json:"url_masked"`
+	// URLTruncated says URL was longer than 1000 characters and was cut (it
+	// ends "…").
+	URLTruncated bool `json:"url_truncated"`
 	// Name is the frame's name (its window.name), on one line and cut to 60
 	// characters (a longer one ends "…"), or nil when it has none.
 	Name      *string `json:"name"`
@@ -1228,6 +1331,33 @@ type AgentSessionFrameList struct {
 	Frames []AgentSessionFrame `json:"frames"`
 	// Truncated says the browser stopped listing before the page's last frame.
 	Truncated bool `json:"truncated"`
+}
+
+// AgentSessionFileHandle is the opaque reference to a file uploaded into a
+// session. No file path is ever exposed.
+type AgentSessionFileHandle struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Mime string `json:"mime"`
+	Size int64  `json:"size"`
+}
+
+// AgentSessionFileUpload is the 200 answer of
+// POST /v1/agent-sessions/{id}/files. Status "ok" carries Handle; any other
+// status has a nil Handle, and Reason, when set, says why.
+type AgentSessionFileUpload struct {
+	Handle *AgentSessionFileHandle `json:"handle"`
+	// Status is "ok", "unavailable", "timeout" or "error".
+	Status string `json:"status"`
+	Reason string `json:"reason,omitempty"`
+	// Code is set only with Status "error", for a failure a program can act
+	// on. Known values: "upload_origin_changed" — the session's page moved to another site after
+	// this upload started, so the file was not kept; upload it again on the
+	// page that needs it. "upload_no_origin" — the session's page has no web
+	// address yet (its start page); open the page first, then upload. Nothing
+	// was stored in either case. More codes may be added: branch on the ones
+	// you know and show Reason otherwise. Empty for every other failure.
+	Code string `json:"code,omitempty"`
 }
 
 // ListFrames returns the embedded frames (iframes) of the page the session's

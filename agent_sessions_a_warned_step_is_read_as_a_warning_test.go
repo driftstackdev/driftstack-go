@@ -55,3 +55,26 @@ func TestAWarnedStepIsReadAsAWarningAndACleanStepHasNone(t *testing.T) {
 		t.Errorf("clean step marshals a warning: %s", buf)
 	}
 }
+
+// A tap that opened a JavaScript dialog is a success carrying
+// "dialog_opened" and the dialog's kind; a warning without one reads Dialog
+// as empty and writes no "dialog" key back out.
+func TestATapThatOpenedADialogIsReadWithItsKind(t *testing.T) {
+	t.Parallel()
+	raw := `{"kind":"success","intent":{"kind":"interact","action":"tap","selector":"#remove-item"},"summary":"tapped #remove-item — it opened a dialog on the page (confirm); answer it with a dialog step","warning":{"kind":"dialog_opened","dialog":"confirm"}}`
+	var r AgentIntentResult
+	if err := json.Unmarshal([]byte(raw), &r); err != nil {
+		t.Fatal(err)
+	}
+	if r.Warning == nil || r.Warning.Kind != "dialog_opened" || r.Warning.Dialog != "confirm" || r.Warning.Status != nil {
+		t.Errorf("warning=%+v", r.Warning)
+	}
+	bare := AgentStepWarning{Kind: "effect_unknown"}
+	buf, err := json.Marshal(bare)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(buf) != `{"kind":"effect_unknown"}` {
+		t.Errorf("a warning with no dialog marshals %s", buf)
+	}
+}
