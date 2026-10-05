@@ -8,6 +8,17 @@ follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **A read that shows a saved credential's placeholder says so:
+  `ShowsPlaceholder`.** Additive. `AgentIntentResult` gains
+  `ShowsPlaceholder *bool` (`json:"shows_placeholder,omitempty"`). A field
+  Driftstack typed a saved credential or a session secret into holds the real
+  value, but an `"extract"` of it reads back the placeholder
+  (`{{credential:cred_…}}`), because a saved value is never read back; such a
+  result now has `ShowsPlaceholder` true. Check it before comparing a
+  read-back with the value you expected — a card field that keeps only digits
+  reads back the handle's digits, not the stored number. Nil on every other
+  result, including a placeholder the page wrote itself.
+
 - **A tap that opened a JavaScript dialog says so: the `"dialog_opened"` step
   warning.** Additive. `AgentStepWarning` gains `Dialog string`
   (`json:"dialog,omitempty"`). A tap that opened an alert, a confirm, a prompt

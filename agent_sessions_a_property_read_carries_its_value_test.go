@@ -70,3 +70,43 @@ func TestAPropertyReadCarriesItsValueAndANullIsNotAnAbsence(t *testing.T) {
 		t.Errorf("intent written back without its property: %s", buf)
 	}
 }
+
+// A read of a field Driftstack typed a saved credential into reads back the
+// placeholder, and says so in ShowsPlaceholder; every other result has none.
+func TestAReadThatShowsAPlaceholderSaysSo(t *testing.T) {
+	t.Parallel()
+	raw := `{"kind":"plan-executed","session":{},"ok":true,
+	  "intents":[],
+	  "results":[
+	    {"kind":"success","intent":{"kind":"extract","selector":"input[name=cardnumber]","property":"value","frame":[6]},"summary":"read property value of input[name=cardnumber] in embedded frame [6]: a string of 52 characters, returned in this step’s value, never stored","value":"{{credential:cred_0123456789abcdef0123456789abcdef}}","value_truncated":false,"shows_placeholder":true},
+	    {"kind":"success","intent":{"kind":"extract","selector":"#name","property":"value"},"summary":"read property value of #name: a string of 3 characters, returned in this step’s value, never stored","value":"Ada","value_truncated":false}
+	  ]}`
+	var resp AgentMessageResponse
+	if err := json.Unmarshal([]byte(raw), &resp); err != nil {
+		t.Fatal(err)
+	}
+	results, err := resp.ParsedResults()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("len=%d", len(results))
+	}
+	if results[0].ShowsPlaceholder == nil || !*results[0].ShowsPlaceholder {
+		t.Errorf("shows_placeholder=%v", results[0].ShowsPlaceholder)
+	}
+	if results[1].ShowsPlaceholder != nil {
+		t.Errorf("a read of a typed value has shows_placeholder=%v", *results[1].ShowsPlaceholder)
+	}
+	buf, err := json.Marshal(results[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back map[string]any
+	if err := json.Unmarshal(buf, &back); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := back["shows_placeholder"]; ok {
+		t.Errorf("a result without the flag marshals one: %s", buf)
+	}
+}

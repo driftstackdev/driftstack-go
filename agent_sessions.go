@@ -580,12 +580,19 @@ type AgentIntentResult struct {
 	// Idempotency-Key: Driftstack returns the value once and never stores it.
 	// ValueTruncated is true when a string was cut to its first 100,000
 	// UTF-16 code units.
-	Value          json.RawMessage        `json:"value,omitempty"`
-	ValueTruncated *bool                  `json:"value_truncated,omitempty"`
-	Reason         string                 `json:"reason,omitempty"`
-	Diagnosis      *AgentFailureDiagnosis `json:"diagnosis,omitempty"`
-	Category       string                 `json:"category,omitempty"`
-	MatchedText    string                 `json:"matchedText,omitempty"`
+	Value          json.RawMessage `json:"value,omitempty"`
+	ValueTruncated *bool           `json:"value_truncated,omitempty"`
+	// ShowsPlaceholder is true only on an "extract" whose read — Value, or the
+	// text in Summary — has a saved credential or session secret Driftstack
+	// typed replaced by its placeholder ("{{credential:cred_…}}"). The field
+	// holds the real value; do not compare the placeholder, or its digits,
+	// with what you expected. Nil otherwise, including for a placeholder the
+	// page wrote itself.
+	ShowsPlaceholder *bool                  `json:"shows_placeholder,omitempty"`
+	Reason           string                 `json:"reason,omitempty"`
+	Diagnosis        *AgentFailureDiagnosis `json:"diagnosis,omitempty"`
+	Category         string                 `json:"category,omitempty"`
+	MatchedText      string                 `json:"matchedText,omitempty"`
 	// Dialog is set only on the success result of a "dialog" step: whether a
 	// dialog was answered, which kind, and how.
 	Dialog *AgentDialogStepResult `json:"dialog,omitempty"`
