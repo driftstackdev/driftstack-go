@@ -8,6 +8,19 @@ follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Delete a profile permanently in one call: `Profiles.Delete(ctx, id, &DeleteProfileOptions{Permanent: true})`.**
+  Additive: `Delete` takes an optional `*DeleteProfileOptions`, so existing
+  calls compile unchanged and still move the profile to the trash, where it
+  counts against the plan's profile limit until it is deleted permanently or
+  purged automatically after 30 days. With `Permanent: true` the request
+  carries `?permanent=true`: a live profile is moved to the trash and purged,
+  a trashed one is purged, the slot is free at once, and it cannot be undone.
+  A profile with a live session is refused with a 409 `*ConflictError` and
+  nothing is deleted. `Purge` still does the same for a profile already in
+  the trash. `QuotaExceededError` gains `TrashCount`: on the profile limit,
+  how many of `Current` are in the trash (0 when the server does not send
+  it).
+
 - **A read that shows a saved credential's placeholder says so:
   `ShowsPlaceholder`.** Additive. `AgentIntentResult` gains
   `ShowsPlaceholder *bool` (`json:"shows_placeholder,omitempty"`). A field

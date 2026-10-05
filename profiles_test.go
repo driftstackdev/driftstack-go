@@ -145,6 +145,43 @@ func TestProfiles_Delete_Idempotent(t *testing.T) {
 	}
 }
 
+// 2026-10-05 — Delete with &DeleteProfileOptions{Permanent: true} sends
+// ?permanent=true; a plain Delete (and Permanent: false, and a nil option)
+// sends no query, so it keeps moving the profile to the trash.
+func TestProfiles_Delete_Permanent(t *testing.T) {
+	t.Parallel()
+	var queries []string
+	_, client := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "DELETE" || r.URL.Path != "/v1/profiles/prof_x" {
+			t.Errorf("unexpected: %s %s", r.Method, r.URL.Path)
+		}
+		queries = append(queries, r.URL.RawQuery)
+		w.WriteHeader(204)
+	})
+	ctx := context.Background()
+	if err := client.Profiles.Delete(ctx, "prof_x", &DeleteProfileOptions{Permanent: true}); err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	if err := client.Profiles.Delete(ctx, "prof_x"); err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	if err := client.Profiles.Delete(ctx, "prof_x", &DeleteProfileOptions{Permanent: false}); err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	if err := client.Profiles.Delete(ctx, "prof_x", nil); err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	want := []string{"permanent=true", "", "", ""}
+	if len(queries) != len(want) {
+		t.Fatalf("queries=%q, want %q", queries, want)
+	}
+	for i := range want {
+		if queries[i] != want[i] {
+			t.Errorf("call %d query=%q, want %q", i, queries[i], want[i])
+		}
+	}
+}
+
 func TestProfiles_Clone_DefaultBodyEmpty(t *testing.T) {
 	t.Parallel()
 	_, client := newServer(t, func(w http.ResponseWriter, r *http.Request) {

@@ -302,11 +302,18 @@ func (e *ConcurrencyLimitError) Is(target error) bool { return target == ErrConc
 // exhausted. Current/Limit/RecordType describe which quota. RecordType
 // carries the resource whose cap was reached ("profile" today); the server
 // spells that field `resource` on the wire.
+//
+// TrashCount (wire `trash_count`), on the profile limit, is how many of
+// Current are in the trash. Trashed profiles count until they are deleted
+// permanently: Profiles.Delete with &DeleteProfileOptions{Permanent: true},
+// or Profiles.Purge for one already in the trash. 0 when the trash is empty,
+// on other limits, and from servers that do not send it.
 type QuotaExceededError struct {
 	apiError
 	Current    int
 	Limit      int
 	RecordType string
+	TrashCount int
 }
 
 func (e *QuotaExceededError) Is(target error) bool { return target == ErrQuotaExceeded }

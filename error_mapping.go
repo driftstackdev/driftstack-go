@@ -236,6 +236,7 @@ func buildQuotaExceeded(base apiError, problem map[string]any, _ string) error {
 		Current:    intFromProblem(problem, "current"),
 		Limit:      intFromProblem(problem, "limit"),
 		RecordType: rt,
+		TrashCount: intFromProblem(problem, "trash_count"),
 	}
 }
 

@@ -222,6 +222,26 @@ func TestQuotaExceededExtractsFields(t *testing.T) {
 	}
 }
 
+// 2026-10-05 — the profile limit's refusal carries trash_count.
+func TestQuotaExceededExtractsTrashCount(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{"type":"https://errors.driftstack.dev/tier-limit","title":"Tier limit reached","status":429,"detail":"at the cap","current":25,"limit":25,"resource":"profile","tier":"starter_v3","trash_count":4}`)
+	var qe *QuotaExceededError
+	if !errors.As(errorFromResponse(429, body, ""), &qe) {
+		t.Fatalf("expected QuotaExceededError")
+	}
+	if qe.TrashCount != 4 || qe.Current != 25 || qe.RecordType != "profile" {
+		t.Errorf("got trash_count=%d current=%d record_type=%s", qe.TrashCount, qe.Current, qe.RecordType)
+	}
+	none := []byte(`{"type":"https://errors.driftstack.dev/tier-limit","title":"limit","status":429,"current":1,"limit":1}`)
+	if !errors.As(errorFromResponse(429, none, ""), &qe) {
+		t.Fatalf("expected QuotaExceededError")
+	}
+	if qe.TrashCount != 0 {
+		t.Errorf("absent trash_count read as %d, want 0", qe.TrashCount)
+	}
+}
+
 func TestSessionTimeoutExtractsTimeoutMs(t *testing.T) {
 	t.Parallel()
 	body := []byte(`{"type":"https://errors.driftstack.dev/session-timeout","title":"Session timeout","status":504,"detail":"The operation exceeded the supplied timeout of 30000 ms.","timeout_ms":30000}`)

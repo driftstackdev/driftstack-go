@@ -128,13 +128,34 @@ func (r *ProfilesResource) Update(ctx context.Context, profileID string, body *U
 	return &out, nil
 }
 
+// DeleteProfileOptions are the optional settings of ProfilesResource.Delete.
+type DeleteProfileOptions struct {
+	// Permanent deletes the profile permanently in the same call and frees
+	// its slot at once (sent as ?permanent=true). This cannot be undone.
+	Permanent bool
+}
+
 // Delete removes a profile. Idempotent — calling on a missing id is
-// not an error (returns nil). Soft delete (L4b) — recoverable via Restore.
-func (r *ProfilesResource) Delete(ctx context.Context, profileID string) error {
-	return r.client.do(ctx, requestOptions{
+// not an error (returns nil).
+//
+// By default this moves the profile to the trash: Restore brings it back,
+// and it still counts against the plan's profile limit until it is deleted
+// permanently or purged automatically 30 days later.
+//
+// With &DeleteProfileOptions{Permanent: true} it is deleted permanently in
+// the same call and its slot is free at once (a live profile is moved to the
+// trash and purged; a trashed one is purged). A profile with a live session
+// is refused with a 409 and nothing is deleted. For a profile already in the
+// trash, Purge does the same.
+func (r *ProfilesResource) Delete(ctx context.Context, profileID string, opts ...*DeleteProfileOptions) error {
+	req := requestOptions{
 		method: "DELETE",
 		path:   "/v1/profiles/" + url.PathEscape(profileID),
-	})
+	}
+	if len(opts) > 0 && opts[0] != nil && opts[0].Permanent {
+		req.query = url.Values{"permanent": {"true"}}
+	}
+	return r.client.do(ctx, req)
 }
 
 // ListTrash returns the account's trashed (soft-deleted) profiles, most-
