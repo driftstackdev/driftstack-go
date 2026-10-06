@@ -8,6 +8,19 @@ follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **A site's HTTP sign-in sheet is a dialog: kind `"http_auth"`.** Additive.
+  A site that answers with an HTTP Basic or Digest challenge (a 401) shows
+  the browser's sign-in sheet, reported as an open dialog whose kind is
+  `"http_auth"` and whose message is `Sign in to <host>`;
+  `AgentDialogStepResult.Kind` and `AgentStepWarning.Dialog` may carry it.
+  Answer it with a `"dialog"` step: `"dismiss"` is Cancel, and `"accept"` with
+  `Text` set to `"<username>:<password>"` signs in — each part a whole
+  `{{credential:<name>}}` or literal text, e.g.
+  `"{{credential:username}}:{{credential:password}}"` — or to one saved
+  credential's placeholder whose value is `username:password`. Over a plain
+  `http` address a saved credential is not sent. The text is never stored or
+  returned.
+
 - **Delete a profile permanently in one call: `Profiles.Delete(ctx, id, &DeleteProfileOptions{Permanent: true})`.**
   Additive: `Delete` takes an optional `*DeleteProfileOptions`, so existing
   calls compile unchanged and still move the profile to the trash, where it

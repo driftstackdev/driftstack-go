@@ -480,25 +480,30 @@ type AgentIntent struct {
 	// tap_at: the point tapped, in viewport pixels from the top-left corner.
 	X *int `json:"x,omitempty"`
 	Y *int `json:"y,omitempty"`
-	// dialog: answers the JavaScript dialog the page has open (an alert, a
-	// confirm, a prompt, or a page asking whether to leave it). Action is
-	// "accept" (OK) or "dismiss" (Cancel). Text, with "accept" only and only
-	// when the open dialog is a prompt, is typed into its field first (at most
-	// 1,000 UTF-16 code units); nil sends none, and a pointer to "" types an
-	// empty answer. POST /steps answers 400 for Text on a "dismiss" or for an
-	// open dialog that is not a prompt. Only on a session whose browser can
-	// answer dialogs; on any other the step fails unsent. Text is never stored
-	// or returned: a step read back from any answer carries
-	// "{{prompt text not stored}}" in its place, and is never answered again.
+	// dialog: answers the dialog the page has open (an alert, a confirm, a
+	// prompt, a page asking whether to leave it, or "http_auth", the browser's
+	// sign-in sheet for a site that asks for an HTTP sign-in). Action is "accept"
+	// (OK; Sign In) or "dismiss" (Cancel). Text, with "accept" only, is typed
+	// into a prompt's field first (at most 1,000 UTF-16 code units); nil sends
+	// none, and a pointer to "" types an empty answer. On an "http_auth" sheet
+	// Text is the sign-in: "username:password" (split at the first colon outside
+	// a placeholder), each part a whole "{{credential:<name>}}" or literal text —
+	// e.g. "{{credential:username}}:{{credential:password}}" — or one placeholder
+	// whose saved value is "username:password". POST /steps answers 400 for Text
+	// on a "dismiss" or for an open dialog that is neither a prompt nor a sign-in
+	// sheet. Only on a session whose browser can answer dialogs; on any other the
+	// step fails unsent. Text is never stored or returned: a step read back from
+	// any answer carries "{{prompt text not stored}}" in its place, and is never
+	// answered again.
 	Text *string `json:"text,omitempty"`
 }
 
 // AgentDialogStepResult is what a "dialog" step did. Handled is true when a
 // dialog was open and was answered, and false when none was open, so nothing
 // was answered (the step still succeeded). Kind is the dialog answered
-// ("alert", "confirm", "prompt" or "beforeunload") when the session knew it,
-// and empty otherwise. Action is the answer given: "accept" or "dismiss". It
-// never carries the text typed into a prompt.
+// ("alert", "confirm", "prompt", "beforeunload" or "http_auth") when the
+// session knew it, and empty otherwise. Action is the answer given: "accept"
+// or "dismiss". It never carries the text typed into a prompt.
 type AgentDialogStepResult struct {
 	Handled bool   `json:"handled"`
 	Kind    string `json:"kind,omitempty"`
@@ -548,8 +553,8 @@ type AgentFailureDiagnosis struct {
 // page shows it. (A tap known to have changed nothing is a "failure" with
 // Diagnosis.Category "no_effect", never a success.) And "dialog_opened": a tap
 // was made, and the page opened a JavaScript dialog after it, where none was
-// open before; Dialog is which one ("alert", "confirm", "prompt" or
-// "beforeunload") when the session reported it. Do not tap again: answer the
+// open before; Dialog is which one ("alert", "confirm", "prompt",
+// "beforeunload" or "http_auth") when the session reported it. Do not tap again: answer the
 // dialog with a "dialog" step. Summary never carries the dialog's text.
 type AgentStepWarning struct {
 	Kind   string `json:"kind"`
