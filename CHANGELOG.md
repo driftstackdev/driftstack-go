@@ -8,6 +8,17 @@ follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **WireGuard `mtu` and `persistent_keepalive`; VPN checks run the full check.**
+  `AccountProxyVpnConfig` gains `MTU` and `PersistentKeepalive` (`*int`),
+  and the `WireGuard` map on `AccountProxyInput` accepts `"mtu"` (1280–1500)
+  and `"persistent_keepalive"` (0–65535); any other key is refused with a
+  `400` naming it. `AccountProxyTestResult` gains `CheckRan` (`"full"` on a
+  quick check of an OpenVPN or WireGuard proxy, which runs the full check
+  because a VPN can only be checked by bringing its tunnel up). Saves now
+  refuse a split-tunnel `allowed_ips`, an unbracketed IPv6 `endpoint`, an
+  OpenVPN file with a bare `auth-user-pass` but not both credentials, and a
+  VPN server name that resolves to a private address.
+
 - **A site's HTTP sign-in sheet is a dialog: kind `"http_auth"`.** Additive.
   A site that answers with an HTTP Basic or Digest challenge (a 401) shows
   the browser's sign-in sheet, reported as an open dialog whose kind is

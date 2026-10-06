@@ -186,9 +186,15 @@ type AccountProxyTestResult struct {
 	// "driftstack" (Driftstack itself measured it — the same path
 	// `?check=quick` always takes, and the honest fallback when a
 	// `?check=full` request could not reach that machine in time). Present only
-	// on a `?check=full` result; `?check=quick` is always "driftstack" and
-	// carries no field to say so.
+	// on a full-check result (including a quick check of a VPN proxy — see
+	// CheckRan); a quick check of a SOCKS5/HTTP proxy is always "driftstack"
+	// and carries no field to say so.
 	MeasuredBy *string `json:"measured_by,omitempty"`
+	// CheckRan is set when Driftstack ran a different check from the one asked
+	// for, and names it. Today: "full" on a quick check of an OpenVPN or
+	// WireGuard proxy, which can only be checked by bringing its tunnel up
+	// (2026-10-06). Nil otherwise.
+	CheckRan *string `json:"check_ran,omitempty"`
 	// OsFingerprint is the proxy's own TCP-stack fingerprint, present only when
 	// Driftstack actually observed it. Absent is "not observed", never
 	// a placeholder OS.
@@ -275,8 +281,8 @@ func (r *EgressResource) GetSessionProxy(ctx context.Context, sessionID string) 
 }
 
 // AccountProxyVpnConfig — the non-secret half of a VPN proxy: the WireGuard
-// peer public key, endpoint, allowed IPs, address and DNS, or the OpenVPN
-// username. Never a key, a pre-shared key or a config blob.
+// peer public key, endpoint, allowed IPs, address, DNS, MTU and keepalive, or
+// the OpenVPN username. Never a key, a pre-shared key or a config blob.
 type AccountProxyVpnConfig struct {
 	PeerPublicKey string `json:"peer_public_key,omitempty"`
 	Endpoint      string `json:"endpoint,omitempty"`
@@ -284,6 +290,13 @@ type AccountProxyVpnConfig struct {
 	Address       string `json:"address,omitempty"`
 	DNS           string `json:"dns,omitempty"`
 	Username      string `json:"username,omitempty"`
+	// MTU is the WireGuard MTU (1280-1500) when the saved configuration sets
+	// one; nil otherwise. Sent to the session's machine, which does not apply
+	// it yet (2026-10-06).
+	MTU *int `json:"mtu,omitempty"`
+	// PersistentKeepalive is the WireGuard keepalive in seconds (0-65535) when
+	// the saved configuration sets one; nil otherwise.
+	PersistentKeepalive *int `json:"persistent_keepalive,omitempty"`
 }
 
 // CreateProxyOptions carries optional per-call overrides for CreateProxy.
