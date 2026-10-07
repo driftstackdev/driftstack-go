@@ -42,7 +42,12 @@ type AgentSession struct {
 	DriftstackSessionID *string `json:"driftstack_session_id"`
 	Status              string  `json:"status"`
 	ClosedReason        *string `json:"closed_reason"`
-	ProvisioningDetail  *string `json:"provisioning_detail,omitempty"`
+	// ClosedReasonDetail is ClosedReason as one plain sentence you can show a
+	// person; nil while the session has not ended (and on older servers). A
+	// closed session whose reason has no sentence of its own gets a generic
+	// one. The wording may change: branch on ClosedReason, show this.
+	ClosedReasonDetail *string `json:"closed_reason_detail,omitempty"`
+	ProvisioningDetail *string `json:"provisioning_detail,omitempty"`
 	// Ready is whether the session's browser has finished starting: true once
 	// the session has reported it ready. Status reads "active" from
 	// the moment the session is created, before that. Wait for IsReady before
@@ -89,6 +94,11 @@ type AgentSession struct {
 	// iPhone the plan includes; drawn once at create, never changed). Nil on a
 	// session created before the server recorded it, and from older servers.
 	ArchetypeSource *string `json:"archetype_source,omitempty"`
+	// ResumedFrom is the ended session this one was reopened from (Reopen),
+	// or nil for a session that was created. An id only: a reopened session
+	// has the ended one's configuration and none of its history. Nil from
+	// older servers.
+	ResumedFrom *string `json:"resumed_from,omitempty"`
 	// PairModeState is nil unless the session is a desktop-app "pair"
 	// session, where it says whether a person has taken over from the AI.
 	//
@@ -196,8 +206,11 @@ type SessionLiveness struct {
 type CreateAgentSessionRequest struct {
 	DriftstackSessionID string `json:"driftstack_session_id,omitempty"`
 	// TokenBudget is the tokens the AI may spend over the whole session.
-	// Zero omits it (default 100,000; at most 10,000,000). When it runs out
-	// the session closes with ClosedReason "budget-exhausted".
+	// Zero omits it (default 500,000 on your own Anthropic key, 100,000 on
+	// Driftstack's included AI; at most 10,000,000). Count about 25,000 per
+	// turn on a complex page: a 10-page form wizard needs roughly 750,000.
+	// AddTokens gives a running session more. When it runs out the session
+	// closes with ClosedReason "budget-exhausted".
 	TokenBudget int `json:"token_budget,omitempty"`
 	// Mode is how the session is driven. Empty string
 	// omits the field on the wire so the server applies its default
@@ -276,12 +289,25 @@ type SessionGeolocation struct {
 // token/cost fields absent (nil). Surface it as a
 // "$0.0023 · 145 tok · <model>" badge; render "—" when the pointer
 // fields are nil. Mirrors the TS SDK's AgentUsage field-for-field.
+//
+// AnthropicInputTokens is the prompt size (uncached + cache write +
+// cache read) of ONE call, the one that made the turn's first plan; it
+// is not the turn. The Turn* fields
+// add up every model call of the turn (Claude turns only; nil on older
+// servers). TurnBudgetDebitedTokens is what the turn took from the
+// session's token_budget, the per-turn cost figure to read.
 type AgentUsage struct {
-	DecomposerKind        string  `json:"decomposer_kind"`
-	AnthropicInputTokens  *int    `json:"anthropic_input_tokens,omitempty"`
-	AnthropicOutputTokens *int    `json:"anthropic_output_tokens,omitempty"`
-	CostUSDCents          *int    `json:"cost_usd_cents,omitempty"`
-	Model                 *string `json:"model,omitempty"`
+	DecomposerKind          string  `json:"decomposer_kind"`
+	AnthropicInputTokens    *int    `json:"anthropic_input_tokens,omitempty"`
+	AnthropicOutputTokens   *int    `json:"anthropic_output_tokens,omitempty"`
+	CostUSDCents            *int    `json:"cost_usd_cents,omitempty"`
+	Model                   *string `json:"model,omitempty"`
+	TurnModelCalls          *int    `json:"turn_model_calls,omitempty"`
+	TurnInputTokens         *int    `json:"turn_input_tokens,omitempty"`
+	TurnCacheReadTokens     *int    `json:"turn_cache_read_tokens,omitempty"`
+	TurnCacheWriteTokens    *int    `json:"turn_cache_write_tokens,omitempty"`
+	TurnOutputTokens        *int    `json:"turn_output_tokens,omitempty"`
+	TurnBudgetDebitedTokens *int    `json:"turn_budget_debited_tokens,omitempty"`
 }
 
 // AgentMessageResponse is the discriminated turn-result. Branch on
@@ -364,7 +390,7 @@ type AgentMessageResponse struct {
 	//
 	//	"step_limit"     the task needs more steps than one message runs; send "continue"
 	//	"time_limit"     the message was taking too long; send "continue"
-	//	"budget_low"     too little of the session's AI budget is left; start a new session
+	//	"budget_low"     too little of the session's AI budget is left; AddTokens first, then send "continue" (a message sent before is refused)
 	//	"no_progress"    the page stopped changing and the next step would repeat; ask a person (OK is false)
 	//	"repeated_step"  the next step would repeat an action that already ran; check, then "continue"
 	//	"ai_unavailable" the next steps could not be worked out just now; send "continue" to try again
@@ -1268,6 +1294,92 @@ func (r *AgentSessionsResource) Resume(ctx context.Context, agentSessionID strin
 		out:    &out,
 	}
 	if err := r.client.do(ctx, req); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// ReopenOptions carries optional per-call overrides for Reopen: the same
+// Idempotency-Key and own-key headers as CreateOptions. Keys are shared with
+// Create.
+type ReopenOptions struct {
+	IdempotencyKey string
+	ByokAPIKey     string
+}
+
+// Reopen starts a NEW agent session with the configuration of one that has
+// ended: the same proxy, profile, device, Mode, Model, token budget and
+// StopOnExitIPChange, for the same account. Nothing of the ended session is
+// carried — no transcript, steps, page or cookies: the new session starts
+// empty with a full budget, and its ResumedFrom names the ended one.
+//
+// A session can be reopened once it has ended (any ClosedReason, an idle
+// timeout included) and for 7 days after its ClosedAt. A reopen is a new
+// session: it counts against your concurrent-session limit, your plan and the
+// trial's session time, and gets every refusal Create does. Pass nil for opts
+// to send neither header.
+//
+// Errors: 409 *ConflictError with Problem["code"] "session_not_ended" (still
+// running) or "reopen_configuration_unavailable" (it ran without a proxy of
+// yours, its profile was deleted, or a device or model it used is no longer
+// offered), 410 *SessionDestroyedError with Problem["code"] ==
+// "reopen_window_passed" (it ended more than 7 days ago), 404 *NotFoundError
+// (unknown, or not yours), and the create's own: 429 *ConcurrencyLimitError,
+// 429 *QuotaExceededError ("trial_session_time_used"), 402, 403, 422, and 503
+// with "dispatch_no_live_node".
+func (r *AgentSessionsResource) Reopen(ctx context.Context, agentSessionID string, opts *ReopenOptions) (*AgentSession, error) {
+	var out AgentSession
+	req := requestOptions{
+		method: "POST",
+		path:   "/v1/agent-sessions/" + url.PathEscape(agentSessionID) + "/reopen",
+		body:   struct{}{},
+		out:    &out,
+	}
+	if opts != nil {
+		headers := map[string]string{}
+		if opts.IdempotencyKey != "" {
+			headers["Idempotency-Key"] = opts.IdempotencyKey
+		}
+		if opts.ByokAPIKey != "" {
+			headers["x-byok-anthropic-api-key"] = opts.ByokAPIKey
+		}
+		if len(headers) > 0 {
+			req.headers = headers
+		}
+	}
+	if err := r.client.do(ctx, req); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// AddTokens adds addTokens (a positive whole number) to a RUNNING session's
+// token budget: TokenBudgetTotal and TokenBudgetRemaining both grow by it, in
+// one step. The session keeps its page, cookies and transcript; if a turn
+// stopped because the budget ran low, the next Message plans again with the
+// new budget. Returns the session.
+//
+// Only a session that is still running can be topped up, and the new total
+// may not pass 10,000,000 tokens. Top-ups sent at once never lose one another's
+// tokens and together never pass that limit: near it, the one that would pass
+// it is refused. A session the budget closed can be reopened with its
+// topped-up total (Reopen). Allowed on your own Anthropic key and on
+// Driftstack's included AI alike.
+//
+// Errors: 409 *ConflictError with Problem["code"] "session_not_running" (the
+// session has ended — including one the budget closed, ClosedReason
+// "budget-exhausted") or "token_budget_cap_exceeded" (Problem["max_add_tokens"]
+// says how many can still be added), 400 *ValidationError (not a positive
+// whole number, or over 10,000,000), 404 *NotFoundError (unknown, or not
+// yours).
+func (r *AgentSessionsResource) AddTokens(ctx context.Context, agentSessionID string, addTokens int) (*AgentSession, error) {
+	var out AgentSession
+	if err := r.client.do(ctx, requestOptions{
+		method: "POST",
+		path:   "/v1/agent-sessions/" + url.PathEscape(agentSessionID) + "/budget",
+		body:   map[string]int{"add_tokens": addTokens},
+		out:    &out,
+	}); err != nil {
 		return nil, err
 	}
 	return &out, nil

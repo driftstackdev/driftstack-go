@@ -61,8 +61,9 @@ func TestAQuestionThatCouldNotBeAnsweredSaysWhyAndCarriesNoAnswer(t *testing.T) 
 func TestAClosedSessionSaysClosedAndWhySoNoSecondCallIsNeeded(t *testing.T) {
 	t.Parallel()
 	calls, err := refusedWith(t, 409, problemBody(409, "conflict", map[string]any{
-		"session_status": "closed",
-		"closed_reason":  "budget-exhausted",
+		"session_status":       "closed",
+		"closed_reason":        "budget-exhausted",
+		"closed_reason_detail": "The browser running this session stopped unexpectedly. Reopen the session to continue.",
 	}), &MessageOptions{IdempotencyKey: "turn-1"})
 	var conflict *ConflictError
 	if !errors.As(err, &conflict) {
@@ -70,6 +71,10 @@ func TestAClosedSessionSaysClosedAndWhySoNoSecondCallIsNeeded(t *testing.T) {
 	}
 	if conflict.SessionStatus() != "closed" || conflict.ClosedReason() != "budget-exhausted" {
 		t.Errorf("SessionStatus=%q ClosedReason=%q", conflict.SessionStatus(), conflict.ClosedReason())
+	}
+	// 2026-10-07 (B-043): and the same reason as a sentence a person can read.
+	if conflict.ClosedReasonDetail() != "The browser running this session stopped unexpectedly. Reopen the session to continue." {
+		t.Errorf("ClosedReasonDetail=%q", conflict.ClosedReasonDetail())
 	}
 	if conflict.TurnInProgress() || IsRetryable(err) {
 		t.Errorf("TurnInProgress=%v IsRetryable=%v", conflict.TurnInProgress(), IsRetryable(err))

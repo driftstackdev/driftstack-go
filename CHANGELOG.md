@@ -8,6 +8,36 @@ follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`AgentSession.ClosedReasonDetail`: why a session ended, in a sentence.**
+  `closed_reason` as one plain sentence you can show a person (for example
+  "The browser running this session stopped unexpectedly. Reopen the session
+  to continue."),
+  `nil` while the session has not ended. A closed session whose reason has
+  no sentence of its own gets a generic one. The wording may change: branch on
+  `ClosedReason`. A `409` for a closed session carries it beside
+  `closed_reason`.
+- **`AgentSessions.AddTokens(ctx, id, addTokens)`: add tokens to a running
+  session.** `POST /v1/agent-sessions/{id}/budget` adds `addTokens` to the
+  session's `token_budget_total` and `token_budget_remaining` in one step, so a
+  long job keeps its page, cookies and transcript instead of starting over.
+  Only a running session can be topped up (`409`,
+  `code: "session_not_running"` otherwise), and the total may not pass
+  10,000,000 (`409`, `code: "token_budget_cap_exceeded"`, with
+  `max_add_tokens`).
+
+- **`AgentSessions.Reopen(ctx, id, opts)`: start a new session like an ended
+  one.** `POST /v1/agent-sessions/{id}/reopen` starts a NEW agent session with
+  the configuration of one that has ended — the same proxy, profile, device,
+  mode, model, token budget and `stop_on_exit_ip_change` — and none of its
+  history: the new session starts with an empty transcript and a full budget.
+  Allowed once the session has ended and for 7 days after its `closed_at`; a
+  running session answers `409` (`code: "session_not_ended"`), an older one
+  `410` `*SessionDestroyedError` (`code: "reopen_window_passed"`). It is a new
+  session for your plan's limits and billing, with every refusal `Create`
+  gives. `ReopenOptions` carries `IdempotencyKey` and `ByokAPIKey`, as
+  `CreateOptions` does. `AgentSession` gains `ResumedFrom` (`*string`): the
+  ended session a reopened one came from, or nil.
+
 - **WireGuard `mtu` and `persistent_keepalive`; VPN checks run the full check.**
   `AccountProxyVpnConfig` gains `MTU` and `PersistentKeepalive` (`*int`),
   and the `WireGuard` map on `AccountProxyInput` accepts `"mtu"` (1280–1500)

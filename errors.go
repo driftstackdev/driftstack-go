@@ -211,6 +211,15 @@ func (e *ConflictError) ClosedReason() string {
 	return v
 }
 
+// ClosedReasonDetail is ClosedReason as one plain sentence you can show a
+// person, when SessionStatus is "closed": the same value Get returns as
+// ClosedReasonDetail. The wording may change; branch on ClosedReason. Empty
+// for a paused session and on older servers.
+func (e *ConflictError) ClosedReasonDetail() string {
+	v, _ := e.Problem["closed_reason_detail"].(string)
+	return v
+}
+
 // IdempotencyStatus is set when the conflict is about the Idempotency-Key:
 // "in_progress" (the first request with this key is still running — retry
 // the SAME key later and it replays the result) or "mismatch" (the key was
