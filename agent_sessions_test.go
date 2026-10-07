@@ -407,6 +407,25 @@ func TestAgentSessions_Close(t *testing.T) {
 	}
 }
 
+// 0187 — a stated reason rides as ?reason=; none stated sends no query.
+func TestAgentSessions_CloseWithReason(t *testing.T) {
+	t.Parallel()
+	var got []string
+	_, client := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		got = append(got, r.URL.RawQuery)
+		w.WriteHeader(http.StatusNoContent)
+	})
+	if err := client.AgentSessions.Close(context.Background(), "agt_1", CloseOptions{Reason: "user_stop"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.AgentSessions.Close(context.Background(), "agt_1", CloseOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0] != "reason=user_stop" || got[1] != "" {
+		t.Fatalf("queries = %q, want [reason=user_stop, \"\"]", got)
+	}
+}
+
 // LK.3 — POST /v1/agent-sessions/:id/livekit-token. Returns the
 // same LiveKitInfo shape that AgentSession.LiveKit carries.
 func TestAgentSessions_LivekitToken(t *testing.T) {

@@ -47,7 +47,13 @@ type AgentSession struct {
 	// closed session whose reason has no sentence of its own gets a generic
 	// one. The wording may change: branch on ClosedReason, show this.
 	ClosedReasonDetail *string `json:"closed_reason_detail,omitempty"`
-	ProvisioningDetail *string `json:"provisioning_detail,omitempty"`
+	// CustomerCloseReason is the reason your own DELETE stated when it closed
+	// the session (user_stop, new_chat, opened_other_chat, chat_deleted,
+	// signed_out, switched_account, app_quit); nil while it runs, when it ended
+	// another way, when no reason was stated, and on older servers. Read a value
+	// you do not recognise as nil.
+	CustomerCloseReason *string `json:"customer_close_reason,omitempty"`
+	ProvisioningDetail  *string `json:"provisioning_detail,omitempty"`
 	// Ready is whether the session's browser has finished starting: true once
 	// the session has reported it ready. Status reads "active" from
 	// the moment the session is created, before that. Wait for IsReady before
@@ -1171,13 +1177,31 @@ func (r *AgentSessionsResource) Transcript(ctx context.Context, agentSessionID s
 	return r.client.doEventStream(ctx, req)
 }
 
+// CloseOptions says why a session is being closed. Reason is one of
+// user_stop, new_chat, opened_other_chat, chat_deleted, signed_out,
+// switched_account or app_quit; the server refuses any other value with a
+// 400 and closes nothing. It is stored as the session's CustomerCloseReason by
+// the call that actually closes it. Empty = no reason stated.
+type CloseOptions struct {
+	Reason string
+}
+
 // Close ends the agent session and its browser (idempotent). Close every
 // session you start — an open session keeps counting toward your plan's
-// concurrent-session limit.
-func (r *AgentSessionsResource) Close(ctx context.Context, agentSessionID string) error {
+// concurrent-session limit. Pass a CloseOptions to state why; with none (or
+// an empty Reason) the request is the one this method always sent, and a
+// server older than the parameter ignores it.
+func (r *AgentSessionsResource) Close(ctx context.Context, agentSessionID string, opts ...CloseOptions) error {
+	var q url.Values
+	for _, o := range opts {
+		if o.Reason != "" {
+			q = url.Values{"reason": []string{o.Reason}}
+		}
+	}
 	return r.client.do(ctx, requestOptions{
 		method: "DELETE",
 		path:   "/v1/agent-sessions/" + url.PathEscape(agentSessionID),
+		query:  q,
 	})
 }
 
