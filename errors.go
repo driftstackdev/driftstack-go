@@ -169,7 +169,7 @@ type BadRequestError struct{ apiError }
 
 func (e *BadRequestError) Is(target error) bool { return target == ErrBadRequest }
 
-// ValidationError — 400 with the validation-failed problem type.
+// ValidationError — 400 or 422 with the validation-failed problem type.
 type ValidationError struct{ apiError }
 
 func (e *ValidationError) Is(target error) bool { return target == ErrValidation }

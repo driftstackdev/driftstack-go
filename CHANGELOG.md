@@ -8,6 +8,24 @@ follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`ListProfilesQuery.Status`: list the trash.**
+  `Profiles.List(ctx, &ListProfilesQuery{Status: ProfileListTrashed})` lists
+  the profiles in the trash (the same rows as `Profiles.ListTrash`), and
+  `ProfileListActive` (or no `Status`, the default) the live ones. Trashed
+  profiles still count toward your plan's profile limit until they are purged,
+  so this is how a program at the limit finds what to purge. The trash comes
+  back whole, in one page: `Limit` and `Cursor` are not applied, `HasMore` is
+  false and `NextCursor` is nil. `Status` is a `ProfileListStatus`
+  (`ProfileListActive`, `ProfileListTrashed`); `Profiles.Iterate` carries it to
+  every page. A query with no `Status` is unchanged.
+- **`PublicArchetype.Browser` and `PublicArchetype.BrowserVersion`: which
+  browser an entry runs.** `GET /v1/archetypes` now names each entry's browser:
+  `Browser` is currently `"safari"` or `"chrome"` (Chrome for iPhone), and
+  `BrowserVersion` is that browser's version. `Browser` is an open string:
+  treat a value you do not know as another browser. Both are empty from a
+  server older than the fields, and such an entry is Safari. `SafariVersion` is
+  unchanged and is set on every entry; on a Chrome entry it is the Safari
+  release Chrome for iPhone is built on, never the Chrome version.
 - **`AgentSession.ClosedReasonDetail`: why a session ended, in a sentence.**
   `closed_reason` as one plain sentence you can show a person (for example
   "The browser running this session stopped unexpectedly. Reopen the session

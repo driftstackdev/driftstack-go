@@ -65,6 +65,83 @@ func TestProfiles_List(t *testing.T) {
 	}
 }
 
+// 2026-10-08 — ListProfilesQuery.Status sends ?status=: ProfileListTrashed
+// lists the trash, ProfileListActive the live profiles, and the zero value
+// sends no status at all (the live profiles, unchanged).
+func TestProfiles_List_Status(t *testing.T) {
+	t.Parallel()
+	if ProfileListActive != "active" || ProfileListTrashed != "trashed" {
+		t.Fatalf("status values: %q %q", ProfileListActive, ProfileListTrashed)
+	}
+	cases := []struct {
+		name  string
+		query *ListProfilesQuery
+		want  string
+	}{
+		{"trashed", &ListProfilesQuery{Status: ProfileListTrashed}, "status=trashed"},
+		{"active", &ListProfilesQuery{Status: ProfileListActive}, "status=active"},
+		{"with limit and cursor", &ListProfilesQuery{Limit: 25, Cursor: "prf_c", Status: ProfileListActive}, "cursor=prf_c&limit=25&status=active"},
+		{"no status", &ListProfilesQuery{Limit: 10}, "limit=10"},
+		{"nil query", nil, ""},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			_, client := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/v1/profiles" || r.Method != "GET" {
+					t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+				}
+				if r.URL.RawQuery != tc.want {
+					t.Errorf("query=%q, want %q", r.URL.RawQuery, tc.want)
+				}
+				w.Header().Set("content-type", "application/json")
+				_ = json.NewEncoder(w).Encode(ProfilesListPage{
+					Data:    []Profile{profileFixture("prf_1")},
+					HasMore: false,
+				})
+			})
+			got, err := client.Profiles.List(context.Background(), tc.query)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(got.Data) != 1 || got.HasMore || got.NextCursor != nil {
+				t.Errorf("page=%+v", got)
+			}
+		})
+	}
+}
+
+// Iterate takes the same query struct, so it carries Status to every page:
+// dropping it would walk the live profiles for a caller who asked for the trash.
+func TestProfiles_Iterate_CarriesStatus(t *testing.T) {
+	t.Parallel()
+	requests := 0
+	_, client := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if got := r.URL.Query().Get("status"); got != "trashed" {
+			t.Errorf("status=%q", got)
+		}
+		w.Header().Set("content-type", "application/json")
+		_ = json.NewEncoder(w).Encode(ProfilesListPage{
+			Data:    []Profile{profileFixture("prf_1"), profileFixture("prf_2")},
+			HasMore: false,
+		})
+	})
+	seen := 0
+	err := client.Profiles.Iterate(context.Background(), &ListProfilesQuery{Status: ProfileListTrashed},
+		func(*Profile) (bool, error) {
+			seen++
+			return true, nil
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if seen != 2 || requests != 1 {
+		t.Errorf("seen=%d requests=%d", seen, requests)
+	}
+}
+
 func TestProfiles_Iterate_WalksCursorPages(t *testing.T) {
 	t.Parallel()
 	pageOne := ProfilesListPage{

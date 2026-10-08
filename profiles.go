@@ -30,6 +30,11 @@ func (r *ProfilesResource) Create(ctx context.Context, body *CreateProfileReques
 }
 
 // List returns a page of profiles, newest first. Pass nil for defaults.
+//
+// Live profiles by default. Status: ProfileListTrashed lists the trash instead
+// (the same rows as ListTrash): profiles there still count toward the plan's
+// profile limit until they are purged. The trash comes back whole, in one
+// page.
 func (r *ProfilesResource) List(ctx context.Context, query *ListProfilesQuery) (*ProfilesListPage, error) {
 	var out ProfilesListPage
 	q := url.Values{}
@@ -39,6 +44,9 @@ func (r *ProfilesResource) List(ctx context.Context, query *ListProfilesQuery) (
 		}
 		if query.Cursor != "" {
 			q.Set("cursor", query.Cursor)
+		}
+		if query.Status != "" {
+			q.Set("status", string(query.Status))
 		}
 	}
 	if err := r.client.do(ctx, requestOptions{
@@ -58,12 +66,14 @@ func (r *ProfilesResource) List(ctx context.Context, query *ListProfilesQuery) (
 func (r *ProfilesResource) Iterate(ctx context.Context, query *ListProfilesQuery, fn func(*Profile) (bool, error)) error {
 	cursor := ""
 	limit := 0
+	var status ProfileListStatus
 	if query != nil {
 		limit = query.Limit
 		cursor = query.Cursor
+		status = query.Status
 	}
 	for {
-		q := &ListProfilesQuery{Limit: limit, Cursor: cursor}
+		q := &ListProfilesQuery{Limit: limit, Cursor: cursor, Status: status}
 		page, err := r.List(ctx, q)
 		if err != nil {
 			return err

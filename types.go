@@ -1052,7 +1052,22 @@ type ProfilesTrashList struct {
 	Data []Profile `json:"data"`
 }
 
+// ProfileListStatus selects which profiles Profiles.List returns.
+type ProfileListStatus string
+
+const (
+	// ProfileListActive lists the live profiles (the default).
+	ProfileListActive ProfileListStatus = "active"
+	// ProfileListTrashed lists the profiles in the trash.
+	ProfileListTrashed ProfileListStatus = "trashed"
+)
+
+// ListProfilesQuery is the query of Profiles.List. Status is empty for the
+// live profiles (the default) or ProfileListTrashed for the trash; with
+// ProfileListTrashed the whole trash comes back in one page: Limit and Cursor
+// are not applied, HasMore is false and NextCursor is nil.
 type ListProfilesQuery struct {
 	Limit  int
 	Cursor string
+	Status ProfileListStatus
 }
