@@ -81,7 +81,14 @@ type AccountProxyMetadata struct {
 	// gets from ListProxies in a team workspace (owner decision 3): name, type,
 	// country and status only; Host, Port, Username and HasPassword are then
 	// absent. Owners and admins get full rows with MemberView false.
-	MemberView bool    `json:"member_view,omitempty"`
+	MemberView bool `json:"member_view,omitempty"`
+	// NarrowedBy says why a MemberView row is narrow, and is sent only when
+	// the server turns read-key listing on: "team_member" (a team member may
+	// not launch through the team's proxies) or "key_scope" (the key lacks
+	// account_owner; the ID still works as a ProxyID). Empty on a full row,
+	// and on a narrow row from a server that does not send it (read that as
+	// "team_member").
+	NarrowedBy string  `json:"narrowed_by,omitempty"`
 	Country    *string `json:"country,omitempty"`
 	Status     string  `json:"status,omitempty"`
 	// QuicMeasured is 'h3' or 'h2-only' once a live session through this proxy

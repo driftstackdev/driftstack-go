@@ -54,14 +54,19 @@ func main() {
 		fmt.Printf("closed agent session %s\n", agent.ID)
 	}()
 
-	// A new session is "provisioning" until its browser is ready.
-	for {
+	// Wait up to two minutes for its browser: Status is "active" from the
+	// start, so read IsReady.
+	for i := 0; i < 60; i++ {
 		s, err := client.AgentSessions.Get(ctx, agent.ID)
 		if err != nil {
 			log.Printf("get: %v", err)
 			return
 		}
-		if s.Status != "provisioning" {
+		if s.Status == "closed" {
+			log.Print("the session closed before its browser was ready")
+			return
+		}
+		if s.IsReady() {
 			break
 		}
 		time.Sleep(2 * time.Second)

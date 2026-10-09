@@ -82,8 +82,18 @@ func run() int {
 		if err != nil {
 			return reportError(err)
 		}
+		// A team member's narrow row (NarrowedBy "team_member", or empty on a
+		// MemberView row) cannot carry a session: the create refuses it with 403.
+		usable := 0
 		for _, p := range saved.Data {
+			if p.MemberView && p.NarrowedBy != "key_scope" {
+				continue
+			}
+			usable++
 			fmt.Fprintf(os.Stderr, "  %s  %s\n", p.ID, p.Label)
+		}
+		if usable == 0 && len(saved.Data) > 0 {
+			fmt.Fprintln(os.Stderr, "  (none of these can carry a session: a team member's view of the team's proxies)")
 		}
 		if len(saved.Data) == 0 {
 			fmt.Fprintln(os.Stderr, "  (none saved yet: save one with client.Egress.CreateProxy, or add one in the desktop app and test it)")
@@ -189,7 +199,8 @@ func run() int {
 // waitUntilReady polls until the session's browser is ready (or two minutes pass).
 func waitUntilReady(ctx context.Context, client *driftstack.Client, session *driftstack.AgentSession) (*driftstack.AgentSession, error) {
 	deadline := time.Now().Add(2 * time.Minute)
-	for session.Status == "provisioning" && time.Now().Before(deadline) {
+	// Status reads "active" from the start; IsReady says when the browser can work.
+	for !session.IsReady() && session.Status != "closed" && time.Now().Before(deadline) {
 		time.Sleep(2 * time.Second)
 		next, err := client.AgentSessions.Get(ctx, session.ID)
 		if err != nil {

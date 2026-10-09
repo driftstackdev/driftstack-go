@@ -514,6 +514,17 @@ type AgentIntent struct {
 	Body      bool   `json:"body,omitempty"`
 	Attribute string `json:"attribute,omitempty"`
 	Property  string `json:"property,omitempty"`
+	// All, with Selector only (and optionally Attribute), never with Body or
+	// Property, reads EVERY element the selector matches, in page order, into
+	// the result's Values (at most 200) instead of the first match's text into
+	// the Summary. A step you send with RunSteps only.
+	All bool `json:"all,omitempty"`
+	// Index, with Selector only (and optionally Attribute), never with All,
+	// Body or Property, reads the element at that position among every match,
+	// counting from 0 in page order, as a read of one element (0 to 999; a
+	// position the selector does not reach fails the step). Nil reads the
+	// first match. A step you send with RunSteps only.
+	Index *int `json:"index,omitempty"`
 	// tap_at: the point tapped, in viewport pixels from the top-left corner.
 	X *int `json:"x,omitempty"`
 	Y *int `json:"y,omitempty"`
@@ -600,8 +611,9 @@ type AgentStepWarning struct {
 }
 
 // AgentIntentResult is the outcome of one step. Kind is "success" (Summary,
-// CaptureID for a capture, Warning when there is something worth knowing, and
-// Value with ValueTruncated for an "extract" with a Property),
+// CaptureID for a capture, Warning when there is something worth knowing,
+// Value with ValueTruncated for an "extract" with a Property, and Values with
+// Truncated for an "extract" with All),
 // "failure" (Reason, and Diagnosis on current servers) or
 // "confirmation_required": the agent stopped BEFORE a purchase, a payment or
 // an account deletion and is waiting for your approval (Category,
@@ -630,11 +642,21 @@ type AgentIntentResult struct {
 	// holds the real value; do not compare the placeholder, or its digits,
 	// with what you expected. Nil otherwise, including for a placeholder the
 	// page wrote itself.
-	ShowsPlaceholder *bool                  `json:"shows_placeholder,omitempty"`
-	Reason           string                 `json:"reason,omitempty"`
-	Diagnosis        *AgentFailureDiagnosis `json:"diagnosis,omitempty"`
-	Category         string                 `json:"category,omitempty"`
-	MatchedText      string                 `json:"matchedText,omitempty"`
+	ShowsPlaceholder *bool `json:"shows_placeholder,omitempty"`
+	// Values is what an "extract" with All read: one entry per element the
+	// selector matched, in page order, at most 200 — its text, or its
+	// Attribute (nil for an element without it). Nil on every other step —
+	// and on a replay of an Idempotency-Key: Driftstack returns the values once
+	// and never stores them. Truncated is true when the selector matched more
+	// than 200 elements, an entry was cut to its first 100,000 UTF-16 code
+	// units, or the entries together reached 100,000 and Values stops there;
+	// the Summary says which.
+	Values      []*string              `json:"values,omitempty"`
+	Truncated   *bool                  `json:"truncated,omitempty"`
+	Reason      string                 `json:"reason,omitempty"`
+	Diagnosis   *AgentFailureDiagnosis `json:"diagnosis,omitempty"`
+	Category    string                 `json:"category,omitempty"`
+	MatchedText string                 `json:"matchedText,omitempty"`
 	// Dialog is set only on the success result of a "dialog" step: whether a
 	// dialog was answered, which kind, and how.
 	Dialog *AgentDialogStepResult `json:"dialog,omitempty"`
@@ -698,10 +720,10 @@ type CreateOptions struct {
 	ByokAPIKey     string
 }
 
-// Create starts a new agent session. While the returned session's Status is
-// "provisioning" its browser is still starting: poll Get until it reads
-// "active" before sending a message ("closed" means it could not start — read
-// ClosedReason).
+// Create starts a new agent session. The returned session's Status is "active"
+// while its browser is still starting: poll Get until IsReady() before sending
+// a message. A session that closes while it is not ready could not start —
+// read ClosedReason.
 //
 // Pass `nil` for opts to skip the Idempotency-Key and key headers.
 //

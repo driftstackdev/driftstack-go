@@ -8,6 +8,26 @@ follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **An `extract` step can read one match by its position: `AgentIntent.Index`.**
+  In a step you send with `RunSteps`, `Index` (a `*int`, 0 to 999) with a
+  `Selector` reads the element at that position among every match, counting
+  from 0 in page order, as a read of one element; a position the selector does
+  not reach fails the step (`element_not_found`). Never with `All` set to true,
+  `Body` or a `Property` (a 400 naming the field); `All` set to false beside it
+  is the same as no `All`. An `Index` of 0 is sent; nil sends none.
+- **An `extract` step can read every match: `AgentIntent.All`.** In a step you
+  send with `RunSteps`, `All: true` with a `Selector` (and optionally an
+  `Attribute`; never with `Body` or a `Property`) reads every element the
+  selector matches, in page order, instead of the first. The step result
+  carries them in `AgentIntentResult.Values` (`[]*string`, one per element,
+  nil for an element without the `Attribute`; at most 200) and `Truncated`
+  (true when the selector matched more than 200, an entry was cut to its
+  first 100,000 UTF-16 code units, or the entries together reached 100,000
+  and `Values` stops there). Driftstack returns them once and never
+  stores them: the transcript, a replay of an Idempotency-Key and the logs
+  carry the step without them, and the `Summary` says only how many were read.
+  `All` beside `Body` or a `Property` on an `extract` is a 400 naming the
+  field; on any other step it is ignored.
 - **The Trash: kept 7 days, counts toward no limit, restores are limited
   (2026-10-08).** A deleted profile stays in the trash for at least 7 days
   (it was 30), then it is removed for good at the next daily clean-up. Profiles in the trash count toward no limit:
@@ -290,6 +310,21 @@ follows [SemVer](https://semver.org/spec/v2.0.0.html).
   already was not. As before, decoding into an `AgentIntent` that already
   holds values keeps the fields the JSON does not name.
 
+### Changed
+
+- **Coming: a step field its kind does not take will be a 400 on
+  `RunSteps`.** Nothing changes yet: today the server drops a field a step's
+  `Kind` does not take, and the step runs without it. A later server release
+  will refuse it with a 400 (`validation-failed`) naming `steps.<i>.<field>`,
+  announced in the API changelog first. `AgentIntent` sends only the fields
+  you set (`omitempty`), so set only your step's own fields (`All` or `Index`
+  on a step that is not an `"extract"` is such a field). A key sent as JSON
+  `null` is not set and stays accepted.
+- **A `tap_at` in `RunSteps` needs no screenshot.** It is no longer refused
+  with "no screenshot has been taken since the page last changed": the point
+  is sent, with the session's own check that it lands on something on the
+  screen.
+
 ### Fixed
 
 - **The package Quickstart (`doc.go`, the pkg.go.dev landing page) runs as
@@ -301,6 +336,17 @@ follows [SemVer](https://semver.org/spec/v2.0.0.html).
   navigate and an extract with `AgentSessions.RunSteps`, and closes the session
   with a `defer` (returning on an error past that point, so the close runs).
   No code changed.
+
+### Changed
+
+- **`AccountProxyMetadata.NarrowedBy` (new field).** A narrow proxy row
+  (`MemberView` true) may say why it is narrow: `"team_member"` (a team
+  member, who may not launch through the team's proxies) or `"key_scope"` (a
+  key without `account_owner`; the ID still works as a `ProxyID`). Sent only
+  when the server turns read-key listing on. Empty from a server that does not
+  send it, which narrows rows for team members only: read empty as
+  `"team_member"`. No method changed, and `ListProxies` still needs a key with
+  the `account_owner` scope.
 
 ## [0.7.0] - 2026-10-04
 

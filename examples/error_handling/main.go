@@ -1,5 +1,9 @@
 // Package main shows the typed-error catch patterns: errors.As for
 // payload, errors.Is for category.
+//
+// Run:
+//
+//	DRIFTSTACK_API_KEY=ds_live_… DRIFTSTACK_PROXY_ID=<proxy id> go run ./examples/error_handling
 package main
 
 import (
@@ -15,8 +19,9 @@ import (
 
 func main() {
 	apiKey := os.Getenv("DRIFTSTACK_API_KEY")
-	if apiKey == "" {
-		log.Fatal("DRIFTSTACK_API_KEY required")
+	proxyID := os.Getenv("DRIFTSTACK_PROXY_ID")
+	if apiKey == "" || proxyID == "" {
+		log.Fatal("DRIFTSTACK_API_KEY and DRIFTSTACK_PROXY_ID required")
 	}
 	client := driftstack.New(apiKey)
 	defer client.Close()
@@ -24,10 +29,14 @@ func main() {
 
 	// Custom retry loop on top of the SDK's default policy. Most callers
 	// don't need this — the SDK retries TransportError + RateLimitError
-	// automatically. Shown here as a recipe for finer control.
-	var session *driftstack.Session
+	// automatically. Shown here as a recipe for finer control. Every attempt
+	// sends the same Idempotency-Key, so a retry never starts a second session.
+	idemKey := fmt.Sprintf("error-handling-%d", time.Now().UnixNano())
+	var session *driftstack.AgentSession
 	for attempt := 0; attempt < 5; attempt++ {
-		s, err := client.Sessions.Create(ctx, nil)
+		s, err := client.AgentSessions.Create(ctx,
+			&driftstack.CreateAgentSessionRequest{Mode: "ai", ProxyID: proxyID},
+			&driftstack.CreateOptions{IdempotencyKey: idemKey})
 		if err == nil {
 			session = s
 			break
@@ -59,14 +68,14 @@ func main() {
 			log.Fatalf("auth failure: %v", err)
 		}
 
-		log.Fatalf("create session: %v", err)
+		log.Fatalf("create agent session: %v", err)
 	}
 
 	if session == nil {
 		log.Fatal("gave up after 5 retries")
 	}
 
-	if err := client.Sessions.Destroy(ctx, session.ID); err != nil {
-		log.Printf("warn: destroy failed: %v", err)
+	if err := client.AgentSessions.Close(ctx, session.ID); err != nil {
+		log.Printf("warn: close failed: %v", err)
 	}
 }

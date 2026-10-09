@@ -61,12 +61,17 @@ func main() {
     }
     defer client.AgentSessions.Close(context.Background(), agent.ID)
 
-    for {
+    // Wait up to two minutes for its browser: Status is "active" from the
+    // start, so read IsReady.
+    for i := 0; i < 60; i++ {
         s, err := client.AgentSessions.Get(ctx, agent.ID)
         if err != nil {
             log.Fatal(err)
         }
-        if s.Status != "provisioning" {
+        if s.Status == "closed" {
+            log.Fatal("the session closed before its browser was ready")
+        }
+        if s.IsReady() {
             break
         }
         time.Sleep(2 * time.Second)
@@ -111,7 +116,9 @@ Every server `application/problem+json` response maps to a typed Go error. Use `
 ```go
 import "errors"
 
-s, err := client.Sessions.Create(ctx, nil)
+s, err := client.AgentSessions.Create(ctx,
+    &driftstack.CreateAgentSessionRequest{Mode: "ai", ProxyID: os.Getenv("DRIFTSTACK_PROXY_ID")},
+    nil)
 if err != nil {
     var rl *driftstack.RateLimitError
     if errors.As(err, &rl) {
@@ -184,7 +191,7 @@ if err != nil {
     return err
 }
 defer client.AgentSessions.Close(ctx, session.ID)
-// Poll Get while session.Status is "provisioning" before sending.
+// Poll Get until session.IsReady() before sending (Status is "active" from the start).
 
 resp, err := client.AgentSessions.Message(ctx, session.ID,
     "Open https://example.com and tell me the main heading.",
@@ -294,7 +301,7 @@ A complete stdlib-only receiver lives in [`examples/webhook_receiver`](examples/
 
 ## Examples
 
-- [`quickstart`](examples/quickstart/main.go) — run an agent session through one of your saved proxies: create, wait while provisioning, give it a task, close.
+- [`quickstart`](examples/quickstart/main.go) — run an agent session through one of your saved proxies: create, wait until it is ready, give it a task, close.
 - [`agent_chat`](examples/agent_chat/main.go) — run an AI task: create, wait until ready, send a task with live progress, handle each result kind (answer, notice, approvals), close.
 - [`profile_management`](examples/profile_management/main.go) — persistent profiles: create, update, clone, iterate, delete.
 - [`pagination`](examples/pagination/main.go) — cursor pagination over list endpoints.

@@ -79,13 +79,17 @@ func scrape(client *driftstack.Client, proxyID, name, url, outDir string) error 
 		_ = client.AgentSessions.Close(context.Background(), agent.ID)
 	}()
 
-	// A new session is "provisioning" until its browser is ready.
-	for {
+	// Wait up to two minutes for its browser: Status is "active" from the
+	// start, so read IsReady.
+	for i := 0; i < 60; i++ {
 		s, err := client.AgentSessions.Get(ctx, agent.ID)
 		if err != nil {
 			return fmt.Errorf("get: %w", err)
 		}
-		if s.Status != "provisioning" {
+		if s.Status == "closed" {
+			return fmt.Errorf("the session closed before its browser was ready")
+		}
+		if s.IsReady() {
 			break
 		}
 		time.Sleep(2 * time.Second)
