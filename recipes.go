@@ -26,6 +26,11 @@ type Recipe struct {
 	IntentCount    int     `json:"intent_count"`
 	CreatedAt      string  `json:"created_at"`
 	UpdatedAt      string  `json:"updated_at"`
+	// Notice is set on a recipe when any step comes from the session's stored
+	// copy (the session ended, or the server restarted while it ran): those
+	// steps have no typed values, selector words cut and addresses cut to
+	// their site, so they may need to be re-recorded before a replay.
+	Notice string `json:"notice,omitempty"`
 }
 
 // RecipeDetail is the public recipe returned by Get. It embeds the list

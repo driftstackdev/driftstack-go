@@ -32,9 +32,10 @@ func (r *ProfilesResource) Create(ctx context.Context, body *CreateProfileReques
 // List returns a page of profiles, newest first. Pass nil for defaults.
 //
 // Live profiles by default. Status: ProfileListTrashed lists the trash instead
-// (the same rows as ListTrash): profiles there still count toward the plan's
-// profile limit until they are purged. The trash comes back whole, in one
-// page.
+// (the same rows as ListTrash): profiles there count toward no limit, and
+// each carries PurgesAt, the earliest time the profile is permanently deleted
+// (at least 7 days after the delete; removal follows at the next daily
+// clean-up). The trash comes back whole, in one page.
 func (r *ProfilesResource) List(ctx context.Context, query *ListProfilesQuery) (*ProfilesListPage, error) {
 	var out ProfilesListPage
 	q := url.Values{}
@@ -140,21 +141,23 @@ func (r *ProfilesResource) Update(ctx context.Context, profileID string, body *U
 
 // DeleteProfileOptions are the optional settings of ProfilesResource.Delete.
 type DeleteProfileOptions struct {
-	// Permanent deletes the profile permanently in the same call and frees
-	// its slot at once (sent as ?permanent=true). This cannot be undone.
+	// Permanent deletes the profile permanently in the same call, instead of
+	// keeping it in the trash for 7 days (sent as ?permanent=true). This
+	// cannot be undone.
 	Permanent bool
 }
 
 // Delete removes a profile. Idempotent — calling on a missing id is
 // not an error (returns nil).
 //
-// By default this moves the profile to the trash: Restore brings it back,
-// and it still counts against the plan's profile limit until it is deleted
-// permanently or purged automatically 30 days later.
+// By default this moves the profile to the trash and frees its slot at once:
+// a profile in the trash counts toward no limit. It is kept there for at
+// least 7 days (until its PurgesAt), then removed for good at the next daily
+// clean-up; until it is removed Restore brings it back.
 //
 // With &DeleteProfileOptions{Permanent: true} it is deleted permanently in
-// the same call and its slot is free at once (a live profile is moved to the
-// trash and purged; a trashed one is purged). A profile with a live session
+// the same call (a live profile is moved to the trash and purged; a trashed
+// one is purged). This cannot be undone. A profile with a live session
 // is refused with a 409 and nothing is deleted. For a profile already in the
 // trash, Purge does the same.
 func (r *ProfilesResource) Delete(ctx context.Context, profileID string, opts ...*DeleteProfileOptions) error {
@@ -169,7 +172,9 @@ func (r *ProfilesResource) Delete(ctx context.Context, profileID string, opts ..
 }
 
 // ListTrash returns the account's trashed (soft-deleted) profiles, most-
-// recently trashed first. Each carries DeletedAt. L4b recycle bin.
+// recently trashed first. Each carries DeletedAt and PurgesAt, the earliest
+// time the profile is permanently deleted (at least 7 days after the delete;
+// removal follows at the next daily clean-up). L4b recycle bin.
 func (r *ProfilesResource) ListTrash(ctx context.Context) (*ProfilesTrashList, error) {
 	var out ProfilesTrashList
 	if err := r.client.do(ctx, requestOptions{
@@ -185,6 +190,15 @@ func (r *ProfilesResource) ListTrash(ctx context.Context) (*ProfilesTrashList, e
 // Restore un-trashes a profile (clears DeletedAt). Returns a 404 error if
 // there's no trashed profile with that id, or 409 if a live profile already
 // holds the name (rename it first). L4b recycle bin.
+//
+// A restore needs a free slot, and each account may restore a limited number
+// of profiles in any rolling 30 days: 10% of the plan's profiles, and never
+// fewer than 3; Enterprise is a flat 100.
+// Both refusals are a *QuotaExceededError (429); read its Code:
+// QuotaCodeRestoreNeedsSlot (the account's live profiles are at the plan's
+// number) or QuotaCodeRestoreCap (the plan's restores are used up;
+// NextRestoreAt says when the next one is available). A refused restore
+// changes nothing and uses none of the plan's restores.
 func (r *ProfilesResource) Restore(ctx context.Context, profileID string) (*Profile, error) {
 	var out Profile
 	if err := r.client.do(ctx, requestOptions{
@@ -197,10 +211,10 @@ func (r *ProfilesResource) Restore(ctx context.Context, profileID string) (*Prof
 	return &out, nil
 }
 
-// Purge permanently deletes a trashed profile, freeing its cap slot
-// immediately (trashed profiles otherwise count toward the tier limit
-// until the 30-day auto-purge). Returns a 404 error if there's no trashed
-// profile with that id. Irreversible. L4b recycle bin.
+// Purge permanently deletes a trashed profile now, instead of at the end of
+// its 7 days in the trash. It frees no slot: a profile in the trash already
+// counts toward no limit. Returns a 404 error if there's no trashed profile
+// with that id. Irreversible. L4b recycle bin.
 func (r *ProfilesResource) Purge(ctx context.Context, profileID string) error {
 	return r.client.do(ctx, requestOptions{
 		method: "DELETE",

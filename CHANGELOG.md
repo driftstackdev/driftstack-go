@@ -8,12 +8,44 @@ follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **The Trash: kept 7 days, counts toward no limit, restores are limited
+  (2026-10-08).** A deleted profile stays in the trash for at least 7 days
+  (it was 30), then it is removed for good at the next daily clean-up. Profiles in the trash count toward no limit:
+  `Profiles.Delete` frees the slot at once, and `Permanent: true` and `Purge`
+  are no longer needed to free one. What changed in the SDK:
+  - `Profile.PurgesAt` (`*time.Time`, wire `purges_at`): on a profile in the
+    trash, the earliest time the profile is permanently deleted (at least 7
+    days after the delete; removal follows at the next daily clean-up); nil
+    on a live profile and from a server older than the field.
+  - `Profiles.Restore` needs a free slot, and each account may restore a
+    limited number of profiles in any rolling 30 days (10% of the plan's
+    profiles, never fewer than 3; Enterprise is a flat 100). Both refusals are a `*QuotaExceededError`
+    (429). `QuotaExceededError` gains `Code`, `WindowDays` and
+    `NextRestoreAt`, and the constants `QuotaCodeRestoreCap`,
+    `QuotaCodeRestoreNeedsSlot` and `QuotaCodeOverPlanLimit`.
+    `QuotaCodeRestoreNeedsSlot` (`RecordType` `"profile"`): the account's live
+    profiles are at the plan's number; delete one or choose a bigger plan,
+    then restore. `QuotaCodeRestoreCap` (`RecordType` `"profile_restore"`):
+    the plan's restores are used up; `Limit`, `Current`, `WindowDays` (30) and
+    `NextRestoreAt` (ISO 8601, when the next one is available) are set. A
+    refused restore changes nothing and uses none of the plan's restores.
+    Existing keyed `QuotaExceededError` literals compile unchanged.
+  - The profile limit's refusal (create, clone, import, snapshot restore) no
+    longer carries a code. `QuotaCodeProfileCapTrash` is declared and marked
+    deprecated: it is no longer sent since 2026-10-08; profiles in the Trash
+    count toward no limit. `QuotaExceededError.TrashCount` stays readable and
+    is always 0; `Current` is the account's live profiles.
+  - `AccountSelfProfile.ProfileRestoresUsed` and `ProfileRestoresLimit`:
+    restores from the trash used in the rolling 30 days, and the number the
+    plan allows. Both are 0 from a server older than the fields.
+    `ProfileCount` and `ProfileCap` both count live profiles only.
 - **`ListProfilesQuery.Status`: list the trash.**
   `Profiles.List(ctx, &ListProfilesQuery{Status: ProfileListTrashed})` lists
   the profiles in the trash (the same rows as `Profiles.ListTrash`), and
-  `ProfileListActive` (or no `Status`, the default) the live ones. Trashed
-  profiles still count toward your plan's profile limit until they are purged,
-  so this is how a program at the limit finds what to purge. The trash comes
+  `ProfileListActive` (or no `Status`, the default) the live ones. Each
+  trashed profile carries `PurgesAt`, the earliest time it is permanently
+  deleted. The
+  trash comes
   back whole, in one page: `Limit` and `Cursor` are not applied, `HasMore` is
   false and `NextCursor` is nil. `Status` is a `ProfileListStatus`
   (`ProfileListActive`, `ProfileListTrashed`); `Profiles.Iterate` carries it to
@@ -26,6 +58,16 @@ follows [SemVer](https://semver.org/spec/v2.0.0.html).
   server older than the fields, and such an entry is Safari. `SafariVersion` is
   unchanged and is set on every entry; on a Chrome entry it is the Safari
   release Chrome for iPhone is built on, never the Chrome version.
+- **`AgentIntent.ValueOmitted` on a stored `type` step.** A `type` step read
+  back from a session's transcript, the live transcript stream, a turn
+  replayed under its `Idempotency-Key` or a recipe has no `Value` (Driftstack
+  never stores a typed value) and has `ValueOmitted: true`, so it is never read
+  as a clear. Only a saved credential's placeholder, or an empty value for a
+  clear, is kept.
+- **`Recipe.Notice`.** Set on the answer to a save when any step comes from the
+  session's stored copy (the session ended, or the server restarted while it
+  ran): those steps have no typed values, selector words cut to `…` and each
+  address cut to its site, so they may need to be re-recorded.
 - **`AgentSession.ClosedReasonDetail`: why a session ended, in a sentence.**
   `closed_reason` as one plain sentence you can show a person (for example
   "The browser running this session stopped unexpectedly. Reopen the session
@@ -83,15 +125,13 @@ follows [SemVer](https://semver.org/spec/v2.0.0.html).
 - **Delete a profile permanently in one call: `Profiles.Delete(ctx, id, &DeleteProfileOptions{Permanent: true})`.**
   Additive: `Delete` takes an optional `*DeleteProfileOptions`, so existing
   calls compile unchanged and still move the profile to the trash, where it
-  counts against the plan's profile limit until it is deleted permanently or
-  purged automatically after 30 days. With `Permanent: true` the request
-  carries `?permanent=true`: a live profile is moved to the trash and purged,
-  a trashed one is purged, the slot is free at once, and it cannot be undone.
+  is kept for 7 days and counts toward no limit. With `Permanent: true` the
+  request carries `?permanent=true`: a live profile is moved to the trash and
+  purged, a trashed one is purged, and it cannot be undone.
   A profile with a live session is refused with a 409 `*ConflictError` and
   nothing is deleted. `Purge` still does the same for a profile already in
-  the trash. `QuotaExceededError` gains `TrashCount`: on the profile limit,
-  how many of `Current` are in the trash (0 when the server does not send
-  it).
+  the trash. `QuotaExceededError` gains `TrashCount` (0 when the server does
+  not send it); since 2026-10-08 it is always 0, see the Trash entry above.
 
 - **A read that shows a saved credential's placeholder says so:
   `ShowsPlaceholder`.** Additive. `AgentIntentResult` gains

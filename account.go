@@ -74,10 +74,17 @@ type AccountSelfProfile struct {
 	ConcurrentSessionActive int           `json:"concurrent_session_active"`
 	ProfileCap              *int          `json:"profile_cap"` // null = enterprise
 	ProfileCount            int           `json:"profile_count"`
-	// ProfileTrashCount — profiles in the recycle bin. They count toward
-	// ProfileCap (owner decision 2, 2026-09-26), so ProfileCount +
-	// ProfileTrashCount is what the cap refuses on.
+	// ProfileTrashCount — profiles in the Trash. They count toward no limit
+	// (since 2026-10-08): ProfileCap and ProfileCount are both live profiles
+	// only.
 	ProfileTrashCount int `json:"profile_trash_count"`
+	// ProfileRestoresUsed / ProfileRestoresLimit — restores from the Trash
+	// this account has used in the rolling 30 days, and the number its plan
+	// allows (10% of the plan's profiles, never fewer than 3; Enterprise is
+	// a flat 100). Both are 0 from a
+	// server older than the fields.
+	ProfileRestoresUsed  int `json:"profile_restores_used"`
+	ProfileRestoresLimit int `json:"profile_restores_limit"`
 	// ProxyCap / ProxyCount — the personal account's saved-proxy allowance
 	// (nil = unmetered) and usage. A team workspace's ride its proxy list.
 	ProxyCap    *int                    `json:"proxy_cap"`

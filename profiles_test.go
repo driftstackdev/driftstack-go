@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 )
 
 func profileFixture(id string) Profile {
@@ -62,6 +63,42 @@ func TestProfiles_List(t *testing.T) {
 	}
 	if len(got.Data) != 2 {
 		t.Errorf("got %d profiles", len(got.Data))
+	}
+}
+
+// 2026-10-08 — a profile in the Trash carries purges_at (the earliest time
+// it is permanently deleted, at least 7 days after the delete; removal
+// follows at the next daily clean-up); a live one carries null, and a
+// server older than the field sends no key. Both read as nil.
+func TestProfiles_ListTrash_PurgesAt(t *testing.T) {
+	t.Parallel()
+	_, client := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/profiles/trash" || r.Method != "GET" {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[` +
+			`{"id":"prf_t","name":"trashed","archetype":"a","created_at":"2026-10-01T00:00:00.000Z","updated_at":"2026-10-08T10:00:00.000Z","deleted_at":"2026-10-08T10:00:00.000Z","purges_at":"2026-10-15T10:00:00.000Z"},` +
+			`{"id":"prf_l","name":"live","archetype":"a","created_at":"2026-10-01T00:00:00.000Z","updated_at":"2026-10-01T00:00:00.000Z","deleted_at":null,"purges_at":null},` +
+			`{"id":"prf_o","name":"older server","archetype":"a","created_at":"2026-10-01T00:00:00.000Z","updated_at":"2026-10-01T00:00:00.000Z"}` +
+			`]}`))
+	})
+	got, err := client.Profiles.ListTrash(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Data) != 3 {
+		t.Fatalf("got %d profiles", len(got.Data))
+	}
+	trashed := got.Data[0]
+	if trashed.PurgesAt == nil || trashed.DeletedAt == nil {
+		t.Fatalf("trashed profile: purges_at=%v deleted_at=%v", trashed.PurgesAt, trashed.DeletedAt)
+	}
+	if kept := trashed.PurgesAt.Sub(*trashed.DeletedAt); kept != 7*24*time.Hour {
+		t.Errorf("purges_at is %v after deleted_at, want 7 days", kept)
+	}
+	if got.Data[1].PurgesAt != nil || got.Data[2].PurgesAt != nil {
+		t.Errorf("a live profile and an older server's row must read nil: %v %v", got.Data[1].PurgesAt, got.Data[2].PurgesAt)
 	}
 }
 

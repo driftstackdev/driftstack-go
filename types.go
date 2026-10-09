@@ -847,6 +847,11 @@ type Profile struct {
 	// DeletedAt — L4b recycle bin. nil for a live profile; set to the trash
 	// timestamp for a soft-deleted one (only ListTrash returns trashed rows).
 	DeletedAt *time.Time `json:"deleted_at"`
+	// PurgesAt — set on a profile in the Trash: the earliest time the profile
+	// is permanently deleted (at least 7 days after the delete; removal
+	// follows at the next daily clean-up). nil on a live profile, and from a
+	// server older than the field.
+	PurgesAt *time.Time `json:"purges_at"`
 }
 
 // ProfileGeolocation — a profile's fixed location: latitude/longitude in

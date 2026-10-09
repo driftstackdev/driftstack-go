@@ -26,6 +26,9 @@ func TestAccount_Me(t *testing.T) {
 		"concurrent_session_active": 2,
 		"profile_cap":               50,
 		"profile_count":             7,
+		"profile_trash_count":       2,
+		"profile_restores_used":     1,
+		"profile_restores_limit":    10,
 		"teams": []map[string]any{
 			{
 				"owner_account_id": "acc_00000000-0000-4000-8000-000000000099",
@@ -62,6 +65,11 @@ func TestAccount_Me(t *testing.T) {
 	}
 	if got.ProfileCap == nil || *got.ProfileCap != 50 {
 		t.Errorf("profile_cap=%v", got.ProfileCap)
+	}
+	// 2026-10-08 — restores from the Trash used in the rolling 30 days, and
+	// the number the plan allows.
+	if got.ProfileTrashCount != 2 || got.ProfileRestoresUsed != 1 || got.ProfileRestoresLimit != 10 {
+		t.Errorf("trash=%d restores used=%d limit=%d", got.ProfileTrashCount, got.ProfileRestoresUsed, got.ProfileRestoresLimit)
 	}
 	if len(got.Teams) != 1 || got.Teams[0].Role != "admin" {
 		t.Errorf("teams=%v", got.Teams)
@@ -101,6 +109,10 @@ func TestAccount_Me_NullableFields(t *testing.T) {
 	}
 	if got.Slug != nil || got.Region != nil || got.AvatarURL != nil {
 		t.Errorf("nullable fields should all be nil")
+	}
+	// A server older than the restore fields sends neither: both read 0.
+	if got.ProfileRestoresUsed != 0 || got.ProfileRestoresLimit != 0 {
+		t.Errorf("absent restore fields read %d/%d, want 0/0", got.ProfileRestoresUsed, got.ProfileRestoresLimit)
 	}
 	if got.ProfileCap != nil {
 		t.Errorf("profile_cap should be nil for enterprise/unmetered")

@@ -242,6 +242,44 @@ func TestQuotaExceededExtractsTrashCount(t *testing.T) {
 	}
 }
 
+// 2026-10-08 — the Trash counts toward no limit; a restore needs a free slot
+// and is capped per rolling 30 days. The two restore refusals are tier-limit
+// 429s told apart by Code.
+func TestQuotaExceededExtractsTheRestoreRefusals(t *testing.T) {
+	t.Parallel()
+	capBody := []byte(`{"type":"https://errors.driftstack.dev/tier-limit","title":"Tier limit reached","status":429,"detail":"used up","code":"restore_cap","resource":"profile_restore","limit":10,"current":10,"tier":"pro_v3","window_days":30,"next_restore_at":"2026-10-21T09:15:00.000Z"}`)
+	var qe *QuotaExceededError
+	if !errors.As(errorFromResponse(429, capBody, ""), &qe) {
+		t.Fatalf("expected QuotaExceededError")
+	}
+	if qe.Code != QuotaCodeRestoreCap || qe.RecordType != "profile_restore" || qe.Limit != 10 || qe.Current != 10 {
+		t.Errorf("got code=%q record_type=%q limit=%d current=%d", qe.Code, qe.RecordType, qe.Limit, qe.Current)
+	}
+	if qe.WindowDays != 30 || qe.NextRestoreAt != "2026-10-21T09:15:00.000Z" {
+		t.Errorf("got window_days=%d next_restore_at=%q", qe.WindowDays, qe.NextRestoreAt)
+	}
+
+	slotBody := []byte(`{"type":"https://errors.driftstack.dev/tier-limit","title":"Tier limit reached","status":429,"detail":"full","code":"restore_needs_slot","resource":"profile","limit":100,"current":100,"tier":"pro_v3"}`)
+	if !errors.As(errorFromResponse(429, slotBody, ""), &qe) {
+		t.Fatalf("expected QuotaExceededError")
+	}
+	if qe.Code != QuotaCodeRestoreNeedsSlot || qe.RecordType != "profile" {
+		t.Errorf("got code=%q record_type=%q", qe.Code, qe.RecordType)
+	}
+	if qe.WindowDays != 0 || qe.NextRestoreAt != "" {
+		t.Errorf("a refusal without a window read window_days=%d next_restore_at=%q", qe.WindowDays, qe.NextRestoreAt)
+	}
+
+	// The profile limit on create: no code, trash_count always 0.
+	createBody := []byte(`{"type":"https://errors.driftstack.dev/tier-limit","title":"Tier limit reached","status":429,"detail":"at the cap","resource":"profile","limit":100,"current":100,"tier":"pro_v3","trash_count":0}`)
+	if !errors.As(errorFromResponse(429, createBody, ""), &qe) {
+		t.Fatalf("expected QuotaExceededError")
+	}
+	if qe.Code != "" || qe.TrashCount != 0 {
+		t.Errorf("got code=%q trash_count=%d", qe.Code, qe.TrashCount)
+	}
+}
+
 func TestSessionTimeoutExtractsTimeoutMs(t *testing.T) {
 	t.Parallel()
 	body := []byte(`{"type":"https://errors.driftstack.dev/session-timeout","title":"Session timeout","status":504,"detail":"The operation exceeded the supplied timeout of 30000 ms.","timeout_ms":30000}`)

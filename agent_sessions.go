@@ -452,10 +452,15 @@ type AgentIntent struct {
 	// On a "type" step Value is added to what the field holds, and an empty
 	// Value clears the field instead (send an empty one, then the new text,
 	// to replace what it held).
-	Action    string `json:"action,omitempty"`
-	Selector  string `json:"selector,omitempty"`
-	Value     string `json:"value,omitempty"`
-	Sensitive bool   `json:"sensitive,omitempty"`
+	// ValueOmitted is true on a "type" step read back from a STORED copy (a
+	// transcript, a replayed turn, a saved chat) whose typed value Driftstack
+	// does not keep: Value is then empty but the step did type something — it
+	// is NOT a clear. A clear stored as a clear has ValueOmitted false.
+	Action       string `json:"action,omitempty"`
+	Selector     string `json:"selector,omitempty"`
+	Value        string `json:"value,omitempty"`
+	ValueOmitted bool   `json:"value_omitted,omitempty"`
+	Sensitive    bool   `json:"sensitive,omitempty"`
 	// wait: Condition is "idle" | "selector_visible" (Selector for the latter).
 	Condition string `json:"condition,omitempty"`
 	TimeoutMs *int   `json:"timeoutMs,omitempty"`

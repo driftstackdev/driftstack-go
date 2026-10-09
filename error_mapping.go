@@ -231,12 +231,17 @@ func buildQuotaExceeded(base apiError, problem map[string]any, _ string) error {
 	if rt == "" {
 		rt, _ = problem["record_type"].(string)
 	}
+	code, _ := problem["code"].(string)
+	nextRestoreAt, _ := problem["next_restore_at"].(string)
 	return &QuotaExceededError{
-		apiError:   base,
-		Current:    intFromProblem(problem, "current"),
-		Limit:      intFromProblem(problem, "limit"),
-		RecordType: rt,
-		TrashCount: intFromProblem(problem, "trash_count"),
+		apiError:      base,
+		Current:       intFromProblem(problem, "current"),
+		Limit:         intFromProblem(problem, "limit"),
+		RecordType:    rt,
+		TrashCount:    intFromProblem(problem, "trash_count"),
+		Code:          code,
+		WindowDays:    intFromProblem(problem, "window_days"),
+		NextRestoreAt: nextRestoreAt,
 	}
 }
 

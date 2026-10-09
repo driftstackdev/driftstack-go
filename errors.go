@@ -309,21 +309,53 @@ func (e *ConcurrencyLimitError) Is(target error) bool { return target == ErrConc
 
 // QuotaExceededError — 429 because a per-period usage quota is
 // exhausted. Current/Limit/RecordType describe which quota. RecordType
-// carries the resource whose cap was reached ("profile" today); the server
-// spells that field `resource` on the wire.
+// carries the resource whose cap was reached: "profile", or
+// "profile_restore" when the plan's restores from the Trash are used up. The
+// server spells that field `resource` on the wire.
 //
-// TrashCount (wire `trash_count`), on the profile limit, is how many of
-// Current are in the trash. Trashed profiles count until they are deleted
-// permanently: Profiles.Delete with &DeleteProfileOptions{Permanent: true},
-// or Profiles.Purge for one already in the trash. 0 when the trash is empty,
-// on other limits, and from servers that do not send it.
+// Code (wire `code`) names the refusal when the server names one; it is ""
+// on a plain limit (for example the profile limit on create). See the
+// QuotaCode constants. On QuotaCodeRestoreCap, WindowDays (wire
+// `window_days`) is the length in days of the rolling window the plan's
+// restores are counted over (30), and NextRestoreAt (wire `next_restore_at`)
+// is the moment the next restore becomes available, as an ISO 8601 string.
+// Both are zero otherwise.
+//
+// TrashCount (wire `trash_count`) is always 0 since 2026-10-08: profiles in
+// the Trash count toward no limit, and deleting a profile frees its slot at
+// once. The server still sends it on the profile limit for older clients.
 type QuotaExceededError struct {
 	apiError
-	Current    int
-	Limit      int
-	RecordType string
-	TrashCount int
+	Current       int
+	Limit         int
+	RecordType    string
+	TrashCount    int
+	Code          string
+	WindowDays    int
+	NextRestoreAt string
 }
+
+// The Code values a QuotaExceededError can carry. Code is an open string: a
+// later server may send a value this SDK has never seen.
+const (
+	// QuotaCodeRestoreCap — Profiles.Restore was refused because the account
+	// has used its plan's restores from the Trash for the rolling 30 days.
+	// RecordType is "profile_restore"; Limit, Current, WindowDays and
+	// NextRestoreAt are set.
+	QuotaCodeRestoreCap = "restore_cap"
+	// QuotaCodeRestoreNeedsSlot — Profiles.Restore was refused because the
+	// account's live profiles are at the plan's number. RecordType is
+	// "profile". Delete a profile or choose a bigger plan, then restore.
+	QuotaCodeRestoreNeedsSlot = "restore_needs_slot"
+	// QuotaCodeOverPlanLimit — a launch was refused because the account holds
+	// more than its plan allows; only the most recently used ones launch.
+	QuotaCodeOverPlanLimit = "over_plan_limit"
+	// QuotaCodeProfileCapTrash is no longer sent.
+	//
+	// Deprecated: no longer sent since 2026-10-08; profiles in the Trash
+	// count toward no limit.
+	QuotaCodeProfileCapTrash = "profile_cap_trash"
+)
 
 func (e *QuotaExceededError) Is(target error) bool { return target == ErrQuotaExceeded }
 
