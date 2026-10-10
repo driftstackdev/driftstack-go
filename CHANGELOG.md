@@ -324,6 +324,17 @@ follows [SemVer](https://semver.org/spec/v2.0.0.html).
   with "no screenshot has been taken since the page last changed": the point
   is sent, with the session's own check that it lands on something on the
   screen.
+- **A step result whose text could not be checked in time says so:
+  `AgentIntentResult.Withheld`.** `*bool` (`json:"withheld,omitempty"`). Once
+  a saved credential or session secret has been typed in a session, every step
+  result is checked for it before it is returned; in the rare case that check
+  does not finish in time, the result now carries `"withheld": true`, and a
+  property read's `Value` is JSON `null` (with `ValueTruncated` false and no
+  `ShowsPlaceholder`). It used to hold the note
+  `(not shown: this text could not be checked in time)`, or keep a boolean or
+  number as read. `Summary` is unchanged. Check `Withheld` before reading
+  `Value`: that `null` says nothing about the page. A read tried again usually
+  returns it.
 
 ### Fixed
 

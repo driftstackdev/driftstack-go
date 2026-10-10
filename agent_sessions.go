@@ -660,6 +660,12 @@ type AgentIntentResult struct {
 	// Dialog is set only on the success result of a "dialog" step: whether a
 	// dialog was answered, which kind, and how.
 	Dialog *AgentDialogStepResult `json:"dialog,omitempty"`
+	// Withheld is true only on a "success" whose text could not be checked in
+	// time for a saved credential or session secret typed in the session
+	// (rare): Summary is a fixed note and a property read's Value is JSON
+	// null, which then says nothing about the page. A read tried again usually
+	// returns it; a step that acted on the page did run. Nil otherwise.
+	Withheld *bool `json:"withheld,omitempty"`
 }
 
 // ParsedResults decodes Results into typed step outcomes.

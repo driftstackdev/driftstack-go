@@ -110,3 +110,46 @@ func TestAReadThatShowsAPlaceholderSaysSo(t *testing.T) {
 		t.Errorf("a result without the flag marshals one: %s", buf)
 	}
 }
+
+// B-147 — a read whose text could not be checked in time says so in Withheld,
+// and its Value is JSON null, not a note; every other result has no Withheld.
+func TestAReadThatWasWithheldSaysSoAndHasANullValue(t *testing.T) {
+	t.Parallel()
+	raw := `{"kind":"plan-executed","session":{},"ok":true,
+	  "intents":[],
+	  "results":[
+	    {"kind":"success","intent":{"kind":"extract","selector":"#name","property":"value"},"summary":"(not shown: this text could not be checked in time)","value":null,"value_truncated":false,"withheld":true},
+	    {"kind":"success","intent":{"kind":"extract","selector":"#name","property":"value"},"summary":"read property value of #name: a string of 3 characters, returned in this step’s value, never stored","value":"Ada","value_truncated":false}
+	  ]}`
+	var resp AgentMessageResponse
+	if err := json.Unmarshal([]byte(raw), &resp); err != nil {
+		t.Fatal(err)
+	}
+	results, err := resp.ParsedResults()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("len=%d", len(results))
+	}
+	if results[0].Withheld == nil || !*results[0].Withheld {
+		t.Errorf("withheld=%v", results[0].Withheld)
+	}
+	if string(results[0].Value) != "null" {
+		t.Errorf("a withheld read's value=%q, want null", string(results[0].Value))
+	}
+	if results[1].Withheld != nil {
+		t.Errorf("a read that was checked has withheld=%v", *results[1].Withheld)
+	}
+	buf, err := json.Marshal(results[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back map[string]any
+	if err := json.Unmarshal(buf, &back); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := back["withheld"]; ok {
+		t.Errorf("a result without the flag marshals one: %s", buf)
+	}
+}
