@@ -297,6 +297,47 @@ func TestAgentSessions_List(t *testing.T) {
 	}
 }
 
+// Lane 151 — Status reaches the wire alone, and Iterate keeps it on every page.
+func TestAgentSessions_List_StatusFilter(t *testing.T) {
+	t.Parallel()
+	var queries []string
+	_, client := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		queries = append(queries, r.URL.RawQuery)
+		w.Header().Set("content-type", "application/json")
+		next := any(nil)
+		if len(queries) == 2 {
+			next = "cur_2"
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data":        []any{agentSessionEnvelope},
+			"has_more":    next != nil,
+			"next_cursor": next,
+		})
+	})
+	if _, err := client.AgentSessions.List(context.Background(), &ListAgentSessionsQuery{Status: "open"}); err != nil {
+		t.Fatal(err)
+	}
+	seen := 0
+	if err := client.AgentSessions.Iterate(context.Background(), &ListAgentSessionsQuery{Status: "active"}, func(*AgentSession) (bool, error) {
+		seen++
+		return true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"status=open", "status=active", "cursor=cur_2&status=active"}
+	if len(queries) != len(want) {
+		t.Fatalf("queries=%v want %v", queries, want)
+	}
+	for i := range want {
+		if queries[i] != want[i] {
+			t.Errorf("query[%d]=%q want %q", i, queries[i], want[i])
+		}
+	}
+	if seen != 2 {
+		t.Errorf("seen=%d want 2", seen)
+	}
+}
+
 func TestAgentSessions_Message_Refuse(t *testing.T) {
 	t.Parallel()
 	_, client := newServer(t, func(w http.ResponseWriter, r *http.Request) {
@@ -591,5 +632,51 @@ func TestAgentSessionIsReadyReadsAnAbsentFieldAsReady(t *testing.T) {
 		if got := s.IsReady(); got != c.want {
 			t.Errorf("IsReady() for %s = %v, want %v", c.body, got, c.want)
 		}
+	}
+}
+
+// Lane 151 part B — IdleTimeoutSeconds rides the create body only when set,
+// and the session reads it back; nil sends no key.
+func TestAgentSessions_Create_IdleTimeoutSeconds(t *testing.T) {
+	t.Parallel()
+	var bodies []map[string]any
+	_, client := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		var b map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&b)
+		bodies = append(bodies, b)
+		env := map[string]any{}
+		for k, v := range agentSessionEnvelope {
+			env[k] = v
+		}
+		if v, ok := b["idle_timeout_seconds"]; ok {
+			env["idle_timeout_seconds"] = v
+		}
+		w.Header().Set("content-type", "application/json")
+		w.WriteHeader(201)
+		_ = json.NewEncoder(w).Encode(env)
+	})
+	n := 150
+	got, err := client.AgentSessions.Create(context.Background(), &CreateAgentSessionRequest{ProxyID: "p", IdleTimeoutSeconds: &n}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.IdleTimeoutSeconds == nil || *got.IdleTimeoutSeconds != 150 {
+		t.Errorf("IdleTimeoutSeconds=%v want 150", got.IdleTimeoutSeconds)
+	}
+	plain, err := client.AgentSessions.Create(context.Background(), &CreateAgentSessionRequest{ProxyID: "p"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plain.IdleTimeoutSeconds != nil {
+		t.Errorf("IdleTimeoutSeconds=%v want nil", *plain.IdleTimeoutSeconds)
+	}
+	if len(bodies) != 2 {
+		t.Fatalf("bodies=%d", len(bodies))
+	}
+	if v, ok := bodies[0]["idle_timeout_seconds"].(float64); !ok || v != 150 {
+		t.Errorf("first body idle_timeout_seconds=%v", bodies[0]["idle_timeout_seconds"])
+	}
+	if _, ok := bodies[1]["idle_timeout_seconds"]; ok {
+		t.Errorf("nil IdleTimeoutSeconds sent a key: %v", bodies[1])
 	}
 }

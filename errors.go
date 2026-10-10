@@ -299,10 +299,24 @@ func (e *RateLimitError) Is(target error) bool { return target == ErrRateLimit }
 // ConcurrencyLimitError — 429 because the active-session count would
 // exceed the tier's concurrent ceiling. CurrentSessions and Limit are
 // the values reported in the problem document.
+//
+// On an agent-session create, OpenSessionIDs lists the ids of the sessions
+// holding the account's slots (newest first, at most 100), so a leftover from
+// an earlier run can be closed with AgentSessions.Close; never close one your
+// program did not create. OpenSessionIDsTruncated is true when there were
+// more (page AgentSessions.List with Status "open" for the rest; a session
+// paused by a bot check reads "active" and holds a slot).
+// OpenSessionIDs is nil when the server did not send them (an older server,
+// another endpoint, a key that cannot list sessions, or the ids could not
+// be read), which is not the same as an empty, non-nil slice. A missing
+// open_session_ids_truncated reads as false; check OpenSessionIDs for nil
+// to tell "not sent" apart.
 type ConcurrencyLimitError struct {
 	apiError
-	CurrentSessions int
-	Limit           int
+	CurrentSessions         int
+	Limit                   int
+	OpenSessionIDs          []string
+	OpenSessionIDsTruncated bool
 }
 
 func (e *ConcurrencyLimitError) Is(target error) bool { return target == ErrConcurrencyLimit }

@@ -216,11 +216,34 @@ func buildRateLimit(base apiError, problem map[string]any, retryAfterHeader stri
 }
 
 func buildConcurrencyLimit(base apiError, problem map[string]any, _ string) error {
+	truncated, _ := problem["open_session_ids_truncated"].(bool)
 	return &ConcurrencyLimitError{
-		apiError:        base,
-		CurrentSessions: intFromProblem(problem, "current_sessions"),
-		Limit:           intFromProblem(problem, "limit"),
+		apiError:                base,
+		CurrentSessions:         intFromProblem(problem, "current_sessions"),
+		Limit:                   intFromProblem(problem, "limit"),
+		OpenSessionIDs:          stringSliceFromProblem(problem, "open_session_ids"),
+		OpenSessionIDsTruncated: truncated,
 	}
+}
+
+// stringSliceFromProblem reads a JSON array of strings. Anything else —
+// absent, not an array, or an array holding a non-string — is nil ("not
+// sent"), never a partial list. A present empty array is an empty, non-nil
+// slice.
+func stringSliceFromProblem(m map[string]any, key string) []string {
+	raw, ok := m[key].([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(raw))
+	for _, v := range raw {
+		s, ok := v.(string)
+		if !ok {
+			return nil
+		}
+		out = append(out, s)
+	}
+	return out
 }
 
 func buildQuotaExceeded(base apiError, problem map[string]any, _ string) error {

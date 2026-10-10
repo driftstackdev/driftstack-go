@@ -86,6 +86,10 @@ type AgentSession struct {
 	// StopOnExitIPChange is whether the session stops when its exit IP
 	// changes (set at create; default false).
 	StopOnExitIPChange bool `json:"stop_on_exit_ip_change"`
+	// IdleTimeoutSeconds is the idle timeout chosen at create with
+	// CreateAgentSessionRequest.IdleTimeoutSeconds, in seconds. Nil when the
+	// session uses its mode's default.
+	IdleTimeoutSeconds *int `json:"idle_timeout_seconds,omitempty"`
 	// ProfileID — the saved profile this session runs ("prof_…"), or nil for
 	// a session with no profile. Lets a second computer show a profile as
 	// running. Absent from older servers.
@@ -278,6 +282,19 @@ type CreateAgentSessionRequest struct {
 	// moment a later report shows a different one (ClosedReason
 	// "exit_ip_changed"). Omit (false) → default.
 	StopOnExitIPChange bool `json:"stop_on_exit_ip_change,omitempty"`
+	// IdleTimeoutSeconds sets a shorter idle timeout for this session, in
+	// whole seconds: it closes (ClosedReason "idle_timeout") after this long
+	// with nothing reaching its browser, instead of its mode's default (about
+	// 5 minutes for "ai" and "pair", 30 minutes for "manual"). From 120 up to
+	// that default: it can only shorten it. What counts: a step being sent or
+	// ending (each step of RunSteps, each step an AI turn runs), a paused
+	// session resuming, and live-view or manual input; reading the session (Get, List, the transcript stream)
+	// does not. The clock starts when the session is created, not when it is
+	// ready. Not enabled yet on every server: where it is not, the server
+	// ignores it, as it ignores any field it does not know, and names it in
+	// the x-driftstack-unknown-fields response header; the session uses the
+	// default idle timeout. Nil sends none.
+	IdleTimeoutSeconds *int `json:"idle_timeout_seconds,omitempty"`
 }
 
 // SessionGeolocation is the explicit per-session geolocation override.
@@ -798,6 +815,12 @@ type AgentSessionsListPage struct {
 type ListAgentSessionsQuery struct {
 	Limit  int
 	Cursor string
+	// Status, when set, lists only the sessions with that status:
+	// "provisioning", "active", "paused" or "closed"; or "open" for every
+	// session that has not ended. Empty lists every session. Any other value
+	// is refused by the server with a 400 (*ValidationError) naming `status`.
+	// Keep the same Status when you page with Cursor.
+	Status string
 }
 
 // List returns a page of the account's agent sessions, newest first. Pass nil
@@ -812,6 +835,9 @@ func (r *AgentSessionsResource) List(ctx context.Context, query *ListAgentSessio
 		}
 		if query.Cursor != "" {
 			q.Set("cursor", query.Cursor)
+		}
+		if query.Status != "" {
+			q.Set("status", query.Status)
 		}
 	}
 	if err := r.client.do(ctx, requestOptions{
@@ -832,12 +858,14 @@ func (r *AgentSessionsResource) List(ctx context.Context, query *ListAgentSessio
 func (r *AgentSessionsResource) Iterate(ctx context.Context, query *ListAgentSessionsQuery, fn func(*AgentSession) (bool, error)) error {
 	cursor := ""
 	limit := 0
+	status := ""
 	if query != nil {
 		limit = query.Limit
 		cursor = query.Cursor
+		status = query.Status
 	}
 	for {
-		page, err := r.List(ctx, &ListAgentSessionsQuery{Limit: limit, Cursor: cursor})
+		page, err := r.List(ctx, &ListAgentSessionsQuery{Limit: limit, Cursor: cursor, Status: status})
 		if err != nil {
 			return err
 		}

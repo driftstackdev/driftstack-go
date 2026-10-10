@@ -8,6 +8,28 @@ follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`CreateAgentSessionRequest.IdleTimeoutSeconds` and
+  `AgentSession.IdleTimeoutSeconds` (coming).** A shorter idle timeout chosen at
+  create (a `*int`, 120 up to the mode's default; shorter only; nil sends
+  none). Not enabled yet on the server: until the API changelog says it is on,
+  the server ignores it as an unknown field (named in the
+  `x-driftstack-unknown-fields` response header) and the session uses the
+  default idle timeout.
+- **`ListAgentSessionsQuery.Status` (2026-10-12).** `List` and `Iterate` with
+  `Status` set list only the sessions with that status: `"provisioning"`,
+  `"active"`, `"paused"` or `"closed"`, or `"open"` for every session that has
+  not ended; `Iterate` keeps it on every page. Empty lists every session. Any
+  other value is a 400 `*ValidationError` naming `status`. The new field
+  breaks unkeyed struct literals (`ListAgentSessionsQuery{50, ""}`); use
+  field names (`ListAgentSessionsQuery{Limit: 50}`).
+- **`ConcurrencyLimitError.OpenSessionIDs` and `OpenSessionIDsTruncated`
+  (2026-10-12).** On an agent-session create refused at the concurrent-session
+  limit, the ids of the sessions holding the slots (newest first, at most 100)
+  and whether there were more, so a leftover from an earlier run can be closed
+  with `AgentSessions.Close`. `OpenSessionIDs` is nil when the server did not
+  send them (an older server, a key that cannot list sessions, or the ids could
+  not be read), which is not an
+  empty slice.
 - **An `extract` step can read one match by its position: `AgentIntent.Index`.**
   In a step you send with `RunSteps`, `Index` (a `*int`, 0 to 999) with a
   `Selector` reads the element at that position among every match, counting

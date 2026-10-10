@@ -621,3 +621,52 @@ func TestIsRetryableNonDriftstackError(t *testing.T) {
 		t.Fatal("expected IsRetryable to return false for nil")
 	}
 }
+
+// Lane 151 — the agent-session create's concurrency 429 names the open
+// sessions; absent or malformed ids read as nil (not sent), an empty array as
+// an empty, non-nil slice.
+func TestConcurrencyLimitError_OpenSessionIDs(t *testing.T) {
+	cases := []struct {
+		name          string
+		extra         string
+		wantIDs       []string
+		wantNil       bool
+		wantTruncated bool
+	}{
+		{"absent", ``, nil, true, false},
+		{"listed", `,"open_session_ids":["agt_1","agt_2"],"open_session_ids_truncated":true`, []string{"agt_1", "agt_2"}, false, true},
+		{"empty", `,"open_session_ids":[],"open_session_ids_truncated":false`, []string{}, false, false},
+		{"non-string", `,"open_session_ids":["agt_1",7],"open_session_ids_truncated":"yes"`, nil, true, false},
+		// A7 RA2-1: a value that is not a list at all is nil (not sent).
+		{"string", `,"open_session_ids":"agt_x","open_session_ids_truncated":false`, nil, true, false},
+		{"object", `,"open_session_ids":{"0":"agt_x"},"open_session_ids_truncated":false`, nil, true, false},
+		{"null", `,"open_session_ids":null,"open_session_ids_truncated":false`, nil, true, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			body := []byte(`{"type":"https://errors.driftstack.dev/concurrency-limit","title":"x","status":429,"current_sessions":1,"limit":1` + tc.extra + `}`)
+			err := errorFromResponse(429, body, "")
+			var c *ConcurrencyLimitError
+			if !errors.As(err, &c) {
+				t.Fatalf("got %T, want *ConcurrencyLimitError", err)
+			}
+			if tc.wantNil {
+				if c.OpenSessionIDs != nil {
+					t.Fatalf("OpenSessionIDs=%v want nil", c.OpenSessionIDs)
+				}
+			} else {
+				if c.OpenSessionIDs == nil || len(c.OpenSessionIDs) != len(tc.wantIDs) {
+					t.Fatalf("OpenSessionIDs=%v want %v", c.OpenSessionIDs, tc.wantIDs)
+				}
+				for i := range tc.wantIDs {
+					if c.OpenSessionIDs[i] != tc.wantIDs[i] {
+						t.Errorf("OpenSessionIDs[%d]=%q want %q", i, c.OpenSessionIDs[i], tc.wantIDs[i])
+					}
+				}
+			}
+			if c.OpenSessionIDsTruncated != tc.wantTruncated {
+				t.Errorf("OpenSessionIDsTruncated=%v want %v", c.OpenSessionIDsTruncated, tc.wantTruncated)
+			}
+		})
+	}
+}
