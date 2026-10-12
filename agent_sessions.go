@@ -328,7 +328,7 @@ type CreateAgentSessionRequest struct {
 	// ending (each step of RunSteps, each step an AI turn runs), a paused
 	// session resuming, and live-view or manual input; reading the session (Get, List, the transcript stream)
 	// does not. The clock starts when the session is created, not when it is
-	// ready. Not enabled yet on every server: where it is not, the server
+	// ready. A server that has it switched off (or that predates it)
 	// ignores it, as it ignores any field it does not know, and names it in
 	// the x-driftstack-unknown-fields response header; the session uses the
 	// default idle timeout. Nil sends none.

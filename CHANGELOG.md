@@ -20,10 +20,11 @@ follows [SemVer](https://semver.org/spec/v2.0.0.html).
   `"history_full"` when a message or steps call is refused by a session that closed this way. New types
   `AgentSessionHistory` and `AgentResponseWarning`. Nil on older servers.
 - **`CreateAgentSessionRequest.IdleTimeoutSeconds` and
-  `AgentSession.IdleTimeoutSeconds` (coming).** A shorter idle timeout chosen at
+  `AgentSession.IdleTimeoutSeconds` (2026-10-12).** A shorter idle timeout chosen at
   create (a `*int`, 120 up to the mode's default; shorter only; nil sends
-  none). Not enabled yet on the server: until the API changelog says it is on,
-  the server ignores it as an unknown field (named in the
+  none). Enabled on the server since 2026-10-12 (API changelog); any other value is
+  a 400 `*ValidationError` naming `idle_timeout_seconds`. A server that has it
+  switched off ignores it as an unknown field (named in the
   `x-driftstack-unknown-fields` response header) and the session uses the
   default idle timeout.
 - **`ListAgentSessionsQuery.Status` (2026-10-12).** `List` and `Iterate` with
