@@ -8,6 +8,17 @@ follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`AgentSession.History`, and `Warning` on a message or steps answer
+  (2026-10-12).** A session keeps at most 256 history entries (and 1 MiB); the
+  call that does not fit closes it with ClosedReason `"transcript-limit"`.
+  `History` (`EntriesUsed`, `EntriesMax`, `EntriesLeft`, `NearlyFull`) says how
+  much is left: a `RunSteps` call needs 1 free entry and an AI `Message` 3. It
+  is nil on a closed session and in the rows of `List` and `Iterate` (use `Get`). While
+  `NearlyFull` is true (fewer than 32 entries left, or the history close to
+  its size limit) `AgentMessageResponse.Warning` is set with Code
+  `"history_nearly_full"`, and `ConflictError.Warning()` returns Code
+  `"history_full"` when a message or steps call is refused by a session that closed this way. New types
+  `AgentSessionHistory` and `AgentResponseWarning`. Nil on older servers.
 - **`CreateAgentSessionRequest.IdleTimeoutSeconds` and
   `AgentSession.IdleTimeoutSeconds` (coming).** A shorter idle timeout chosen at
   create (a `*int`, 120 up to the mode's default; shorter only; nil sends

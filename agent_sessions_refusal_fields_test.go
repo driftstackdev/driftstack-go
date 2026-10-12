@@ -222,3 +222,78 @@ func TestBillingANewerReasonAndNoKeyAtAllAreEachToldApart(t *testing.T) {
 		t.Errorf("no key: err=%v", err)
 	}
 }
+
+// B-304 (2026-10-12): a session's history fills up; the answer before the
+// close says how much is left, and the 409 after it says the history was full.
+func TestANearlyFullHistoryReachesTheProgramAndAnOlderServerSendsNeither(t *testing.T) {
+	t.Parallel()
+	session := map[string]any{}
+	for k, v := range agentSessionEnvelope {
+		session[k] = v
+	}
+	session["history"] = map[string]any{
+		"entries_used": 250, "entries_max": 256, "entries_left": 6, "nearly_full": true,
+	}
+	body := planExecutedBody()
+	body["session"] = session
+	body["warning"] = map[string]any{"code": "history_nearly_full", "message": "6 of 256 entries are left."}
+	// A field this SDK version has never heard of must not fail the decode.
+	body["some_later_field"] = map[string]any{"x": 1}
+	_, client := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		writeAgentMessageSSE(t, w, 200, body)
+	})
+	resp, err := client.AgentSessions.Message(context.Background(), "agt_1", "hello", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Session.History == nil {
+		t.Fatal("Session.History is nil")
+	}
+	if h := *resp.Session.History; h.EntriesUsed != 250 || h.EntriesMax != 256 || h.EntriesLeft != 6 || !h.NearlyFull {
+		t.Errorf("History=%+v", h)
+	}
+	if resp.Warning == nil || resp.Warning.Code != "history_nearly_full" || resp.Warning.Message == "" {
+		t.Errorf("Warning=%+v", resp.Warning)
+	}
+
+	_, older := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		writeAgentMessageSSE(t, w, 200, planExecutedBody())
+	})
+	old, err := older.AgentSessions.Message(context.Background(), "agt_1", "hello", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if old.Session.History != nil || old.Warning != nil {
+		t.Errorf("History=%+v Warning=%+v, want neither", old.Session.History, old.Warning)
+	}
+}
+
+func TestASessionItsFullHistoryClosedSaysHistoryFullAndNoOtherConflictDoes(t *testing.T) {
+	t.Parallel()
+	_, err := refusedWith(t, 409, problemBody(409, "conflict", map[string]any{
+		"session_status": "closed",
+		"closed_reason":  "transcript-limit",
+		"warning":        map[string]any{"code": "history_full", "message": "Start a new session."},
+	}), nil)
+	var full *ConflictError
+	if !errors.As(err, &full) {
+		t.Fatalf("err=%v, want *ConflictError", err)
+	}
+	if w := full.Warning(); w == nil || w.Code != "history_full" || w.Message != "Start a new session." {
+		t.Errorf("Warning=%+v", w)
+	}
+	for _, warning := range []any{nil, "history_full", map[string]any{"code": "history_full"}, map[string]any{"code": 7, "message": "x"}} {
+		ext := map[string]any{"session_status": "closed", "closed_reason": "customer-closed"}
+		if warning != nil {
+			ext["warning"] = warning
+		}
+		_, err := refusedWith(t, 409, problemBody(409, "conflict", ext), nil)
+		var other *ConflictError
+		if !errors.As(err, &other) {
+			t.Fatalf("err=%v, want *ConflictError", err)
+		}
+		if w := other.Warning(); w != nil {
+			t.Errorf("warning %v read as %+v, want nil", warning, w)
+		}
+	}
+}

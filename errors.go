@@ -220,6 +220,23 @@ func (e *ConflictError) ClosedReasonDetail() string {
 	return v
 }
 
+// Warning is set when a Message or RunSteps call was refused because the
+// session's history was full
+// (ClosedReason is "transcript-limit"): Code "history_full" and a sentence
+// saying what to do next. Nil on every other conflict and on older servers.
+func (e *ConflictError) Warning() *AgentResponseWarning {
+	raw, ok := e.Problem["warning"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	code, okCode := raw["code"].(string)
+	message, okMessage := raw["message"].(string)
+	if !okCode || !okMessage {
+		return nil
+	}
+	return &AgentResponseWarning{Code: code, Message: message}
+}
+
 // IdempotencyStatus is set when the conflict is about the Idempotency-Key:
 // "in_progress" (the first request with this key is still running — retry
 // the SAME key later and it replays the result) or "mismatch" (the key was

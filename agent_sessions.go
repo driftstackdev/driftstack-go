@@ -34,6 +34,38 @@ type LiveKitInfo struct {
 	ExpiresAt           string `json:"expires_at"`
 }
 
+// AgentSessionHistory is how much history an agent session has left. A
+// session keeps at most EntriesMax history entries (and 1 MiB); the call that
+// does not fit closes it with ClosedReason "transcript-limit". Counts and one
+// boolean; never a size and never an entry.
+type AgentSessionHistory struct {
+	// EntriesUsed is how many history entries the session holds (the same
+	// number as TranscriptLength).
+	EntriesUsed int `json:"entries_used"`
+	// EntriesMax is the most history entries a session keeps (256).
+	EntriesMax int `json:"entries_max"`
+	// EntriesLeft is EntriesMax less EntriesUsed, never below 0. A RunSteps
+	// call needs 1 free entry, a note in manual mode 1, and an AI Message 3:
+	// with 1 or 2 left a steps call still runs and an AI message closes the
+	// session.
+	EntriesLeft int `json:"entries_left"`
+	// NearlyFull is true when fewer than 32 entries are left, or when the
+	// history is close to its size limit (a session with long entries can
+	// reach that first). Finish and start a new session; pass
+	// ContinueFromAgentSessionID to carry the recent conversation over.
+	NearlyFull bool `json:"nearly_full"`
+}
+
+// AgentResponseWarning is a non-fatal warning beside a result: Warning on a
+// Message or RunSteps answer ("history_nearly_full": the answer's
+// Session.History.NearlyFull is true), and ConflictError.Warning for a session
+// its full history closed ("history_full"). Code is an open set: match the
+// codes you know and show Message for any other.
+type AgentResponseWarning struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
 // AgentSession is the read envelope returned by Create / Get / and as
 // the .Session field of every Message response.
 type AgentSession struct {
@@ -70,6 +102,12 @@ type AgentSession struct {
 	TokenBudgetTotal     int     `json:"token_budget_total"`
 	TokenBudgetRemaining int     `json:"token_budget_remaining"`
 	TranscriptLength     int     `json:"transcript_length"`
+	// History is how much history the session has left; nil on a closed
+	// session, in the rows of List (use Get), when the server cannot count the
+	// history, and from an older server. On the Session of a Message or
+	// RunSteps answer it already counts
+	// that call's own entries.
+	History *AgentSessionHistory `json:"history,omitempty"`
 	// ClosedAt is the ISO-8601 time the session left "active"; nil while
 	// active. Distinct from UpdatedAt, which moves on every message.
 	ClosedAt *string `json:"closed_at"`
@@ -365,6 +403,10 @@ type AgentUsage struct {
 type AgentMessageResponse struct {
 	Kind    string       `json:"kind"`
 	Session AgentSession `json:"session"`
+	// Warning is set only while this session's history is nearly full (Code
+	// "history_nearly_full"; Session.History has the numbers). Nil otherwise,
+	// and from an older server.
+	Warning *AgentResponseWarning `json:"warning,omitempty"`
 	// Intents are every step the turn attempted, in order, across every plan
 	// it made. Read each step's outcome from Results, which carries the step it
 	// ran; the two need not line up by index — Intents is longer when a plan
