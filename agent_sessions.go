@@ -1012,10 +1012,15 @@ type MessageOptions struct {
 // KeyRejectedReason() say which key and why). No step ran, and it is not
 // retryable: fix the key first.
 //
-// A 503 *FeatureUnavailableError on a message sent WITH an idempotency key
-// means this deployment cannot record keys at all, so nothing ran. It is NOT
-// transient: the same key fails the same way for as long as the deployment is
-// in that state, and a retry loop never ends. The same message without an
+// A 503 *FeatureUnavailableError with Problem["code"] == "ai_provider_unavailable"
+// means Driftstack's included AI is temporarily unavailable: nothing ran; wait
+// Problem["retry_after_seconds"], then send the message again with a new
+// idempotency key (the one you sent keeps this answer).
+//
+// A 503 *FeatureUnavailableError without a code on a message sent WITH an
+// idempotency key means this deployment cannot record keys at all, so
+// nothing ran. It is NOT transient: the same key fails the same way for as
+// long as the deployment is in that state, and a retry loop never ends. The same message without an
 // idempotency key runs the turn — send it that way only if running the task
 // twice would be safe, because that is the protection you are giving up.
 func (r *AgentSessionsResource) Message(ctx context.Context, agentSessionID, userMessage string, opts *MessageOptions) (*AgentMessageResponse, error) {

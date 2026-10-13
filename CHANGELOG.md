@@ -6,6 +6,13 @@ follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Documentation
+
+- **`AgentSessions.Message` docs** (2026-10-13): a 503 `*FeatureUnavailableError` with
+  `Problem["code"] == "ai_provider_unavailable"` is temporary (Driftstack's included AI is
+  unavailable; nothing ran): wait `Problem["retry_after_seconds"]` and send the message again
+  with a new idempotency key. The cannot-record-keys advice is for a 503 without a code only.
+
 ### Added
 
 - **`"agent_sessions:steps"`** can appear as `RateLimitBucket.BucketKey` in
