@@ -15,6 +15,14 @@ follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`Account.Limits`** (2026-10-13): `GET /v1/account/limits` in one read:
+  each rate-limit bucket (`plan`, `override`, `effective`, `source`) and the
+  counted limits (`concurrent_sessions`, `saved_profiles`,
+  `profile_restores_30d`, `saved_proxies`) with `usage` and `remaining`.
+  Always the key's own account. New types `GetAccountLimitsResponse`,
+  `AccountLimitsBucket`, `AccountLimitsOverride`, `AccountLimitsCap`,
+  `AccountLimitsCapOverride`, `LimitFigure`.
+
 - **`"agent_sessions:steps"`** can appear as `RateLimitBucket.BucketKey` in
   `Account.RateLimits` (2026-10-12): `AgentSessions.RunSteps` now counts
   against its own bucket instead of `"agent_sessions:message"`. A list of

@@ -187,6 +187,49 @@ func TestAccount_RateLimits(t *testing.T) {
 	}
 }
 
+func TestAccount_Limits(t *testing.T) {
+	t.Parallel()
+	var method, path string
+	_, client := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		method, path = r.Method, r.URL.Path
+		w.Header().Set("content-type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"tier": "starter_v3",
+			"rate_limits": []map[string]any{{
+				"bucket_key": "agent_sessions:steps",
+				"plan":       map[string]any{"capacity": 40, "refill_per_second": 0.5},
+				"override": map[string]any{
+					"capacity": 400, "refill_per_second": 4.0,
+					"expires_at": "2026-10-14T00:00:00Z", "set_on_bucket": "agent_sessions:message",
+				},
+				"effective": map[string]any{"capacity": 400, "refill_per_second": 4.0},
+				"source":    "override",
+			}},
+			"caps": []map[string]any{{
+				"key": "saved_profiles", "plan": nil, "override": nil,
+				"effective": nil, "usage": 12, "remaining": nil,
+			}},
+		})
+	})
+	out, err := client.Account.Limits(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if method != "GET" || path != "/v1/account/limits" {
+		t.Errorf("got %s %s, want GET /v1/account/limits", method, path)
+	}
+	if len(out.RateLimits) != 1 || out.RateLimits[0].Override == nil ||
+		out.RateLimits[0].Override.SetOnBucket != "agent_sessions:message" ||
+		out.RateLimits[0].Plan.RefillPerSecond != 0.5 {
+		t.Fatalf("rate_limits = %+v", out.RateLimits)
+	}
+	c := out.Caps[0]
+	// A contract plan has no number: nil, never 0.
+	if c.Plan != nil || c.Effective != nil || c.Remaining != nil || c.Usage == nil || *c.Usage != 12 {
+		t.Errorf("cap = %+v", c)
+	}
+}
+
 func TestAccount_ListCredentials(t *testing.T) {
 	t.Parallel()
 	var method, path string

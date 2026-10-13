@@ -5,8 +5,8 @@ import (
 )
 
 // AccountResource holds the account reads a program needs: Whoami (which
-// account, key, tier and scopes an API key has), RateLimits,
-// GetBundledLlmStatus and ListCredentials (the handles of the account's saved
+// account, key, tier and scopes an API key has), RateLimits, Limits (rate and
+// counted limits with what is in use), GetBundledLlmStatus and ListCredentials (the handles of the account's saved
 // credentials). Me is deprecated.
 //
 // Everything else about the account — the profile, avatar, sign-ins, MFA, API
@@ -138,6 +138,73 @@ func (r *AccountResource) RateLimits(ctx context.Context) (*GetAccountRateLimits
 	if err := r.client.do(ctx, requestOptions{
 		method: "GET",
 		path:   "/v1/account/rate-limits",
+		out:    &out,
+	}); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// LimitFigure — a token bucket's burst (capacity) and refill a second.
+type LimitFigure struct {
+	Capacity        int     `json:"capacity"`
+	RefillPerSecond float64 `json:"refill_per_second"`
+}
+
+// AccountLimitsOverride — a limit agreed for the account that sets a bucket now.
+type AccountLimitsOverride struct {
+	Capacity        int     `json:"capacity"`
+	RefillPerSecond float64 `json:"refill_per_second"`
+	ExpiresAt       string  `json:"expires_at"`
+	SetOnBucket     string  `json:"set_on_bucket"`
+}
+
+// AccountLimitsBucket — one rate-limit bucket: the plan figure, the agreed
+// limit (nil when none applies), the figure enforced now and where it comes
+// from ("plan" | "override" | "session_cap").
+type AccountLimitsBucket struct {
+	BucketKey string                 `json:"bucket_key"`
+	Plan      LimitFigure            `json:"plan"`
+	Override  *AccountLimitsOverride `json:"override"`
+	Effective LimitFigure            `json:"effective"`
+	Source    string                 `json:"source"`
+}
+
+// AccountLimitsCapOverride — a number agreed for the account above the plan's.
+type AccountLimitsCapOverride struct {
+	Value     int     `json:"value"`
+	ExpiresAt *string `json:"expires_at"`
+}
+
+// AccountLimitsCap — one counted limit ("concurrent_sessions" |
+// "saved_profiles" | "profile_restores_30d" | "saved_proxies"). A nil number
+// is none (set by contract) or, for Usage and Remaining, not readable now.
+type AccountLimitsCap struct {
+	Key       string                    `json:"key"`
+	Plan      *int                      `json:"plan"`
+	Override  *AccountLimitsCapOverride `json:"override"`
+	Effective *int                      `json:"effective"`
+	Usage     *int                      `json:"usage"`
+	Remaining *int                      `json:"remaining"`
+}
+
+type GetAccountLimitsResponse struct {
+	Tier       string                `json:"tier"`
+	RateLimits []AccountLimitsBucket `json:"rate_limits"`
+	Caps       []AccountLimitsCap    `json:"caps"`
+}
+
+// Limits — the rate limits and counted limits of the account, with what is
+// in use. Not listed: the per-address limit, the tasks and lists of steps
+// running at once, AI turns running at once, live transcript streams, a
+// session's token budget, profile storage, the longest a session may run
+// and, on the Trial, its total session time and whether it has ended.
+// Always the key's own account.
+func (r *AccountResource) Limits(ctx context.Context) (*GetAccountLimitsResponse, error) {
+	var out GetAccountLimitsResponse
+	if err := r.client.do(ctx, requestOptions{
+		method: "GET",
+		path:   "/v1/account/limits",
 		out:    &out,
 	}); err != nil {
 		return nil, err
