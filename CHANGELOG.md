@@ -8,6 +8,14 @@ follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`"agent_sessions:steps"`** can appear as `RateLimitBucket.BucketKey` in
+  `Account.RateLimits` (2026-10-12): `AgentSessions.RunSteps` now counts
+  against its own bucket instead of `"agent_sessions:message"`. A list of
+  steps runs no AI, so steps and `Message` no longer use up each other's
+  rate. It is 40, then 30 a minute, for each session your plan runs at once,
+  and grows when your session limit is raised. `Message` stays on
+  `"agent_sessions:message"`. `BucketKey` is a `string`, so nothing to change
+  unless you switch on it.
 - **`AgentSession.History`, and `Warning` on a message or steps answer
   (2026-10-12).** A session keeps at most 256 history entries (and 1 MiB); the
   call that does not fit closes it with ClosedReason `"transcript-limit"`.

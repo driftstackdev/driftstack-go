@@ -119,7 +119,7 @@ func (r *AccountResource) Me(ctx context.Context) (*AccountSelfProfile, error) {
 
 // RateLimitBucket — per-bucket effective rate-limit config.
 type RateLimitBucket struct {
-	// "global" | "sessions:create" | "agent_sessions:message" | "agent_sessions:input_event" | "agent_sessions:live"
+	// "global" | "sessions:create" | "agent_sessions:message" | "agent_sessions:input_event" | "agent_sessions:live" | "agent_sessions:steps"
 	BucketKey         string  `json:"bucket_key"`
 	Capacity          int     `json:"capacity"`
 	RefillPerSecond   float64 `json:"refill_per_second"`
