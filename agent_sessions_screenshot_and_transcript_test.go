@@ -368,3 +368,64 @@ func TestA200ThatIsNotAnEventStreamIsAContractErrorNotAnEmptyTranscript(t *testi
 		t.Fatalf("err=%v, want the not-an-event-stream TransportError", err)
 	}
 }
+
+// The server sends one transcript.error frame, then closes the stream, when
+// the reader is not keeping up. Transcript must end with an error there, never
+// return nil as if the stream had ended normally.
+func transcriptThenFrame(t *testing.T, event string) string {
+	t.Helper()
+	return entryFrame(t, 0, "user", "Open the invoices page.") +
+		entryFrame(t, 1, "agent", "navigate https://portal.example.test/invoices") +
+		"event: " + event + "\n" +
+		"data: {\"code\":\"stalled\",\"detail\":\"The reader took no data for 30 seconds.\"}\n\n"
+}
+
+func TestATranscriptErrorFrameEndsTheCallWithATransportErrorAfterTheEntriesBeforeIt(t *testing.T) {
+	t.Parallel()
+	stream := transcriptThenFrame(t, "transcript.error")
+	_, client := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		writeInPieces(w, stream, 17)
+	})
+	var seen []int
+	err := client.AgentSessions.Transcript(context.Background(), "agt_1", nil, func(e AgentTranscriptEvent) (bool, error) {
+		seen = append(seen, e.Index)
+		return true, nil
+	})
+	if !reflect.DeepEqual(seen, []int{0, 1}) {
+		t.Errorf("seen=%v, want [0 1]", seen)
+	}
+	var transport *TransportError
+	if !errors.As(err, &transport) {
+		t.Fatalf("err=%v, want *TransportError (never a quiet nil)", err)
+	}
+	if !errors.Is(err, ErrTransport) {
+		t.Errorf("errors.Is(err, ErrTransport) = false")
+	}
+	if transport.Status != 200 {
+		t.Errorf("Status=%d, want 200", transport.Status)
+	}
+	for _, want := range []string{"closed the transcript stream (code: stalled)", "LastEventID"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("err=%q does not contain %q", err.Error(), want)
+		}
+	}
+}
+
+func TestControlAnUnknownEventNameIsStillSkippedAndTheStreamEndsNormally(t *testing.T) {
+	t.Parallel()
+	stream := transcriptThenFrame(t, "transcript.something_new")
+	_, client := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		writeInPieces(w, stream, 17)
+	})
+	var seen []int
+	err := client.AgentSessions.Transcript(context.Background(), "agt_1", nil, func(e AgentTranscriptEvent) (bool, error) {
+		seen = append(seen, e.Index)
+		return true, nil
+	})
+	if err != nil {
+		t.Fatalf("err=%v, want nil", err)
+	}
+	if !reflect.DeepEqual(seen, []int{0, 1}) {
+		t.Errorf("seen=%v, want [0 1]", seen)
+	}
+}

@@ -34,32 +34,47 @@ type LiveKitInfo struct {
 	ExpiresAt           string `json:"expires_at"`
 }
 
-// AgentSessionHistory is how much history an agent session has left. A
-// session keeps at most EntriesMax history entries (and 1 MiB); the call that
-// does not fit closes it with ClosedReason "transcript-limit". Counts and one
-// boolean; never a size and never an entry.
+// AgentSessionHistory is how much room an agent session's live history (what
+// the agent works from) has. It holds at most EntriesMax entries (and 1 MiB);
+// when a call does not fit, the oldest entries are dropped from it (the first
+// task is kept) and the session goes on. Counts and one boolean; never a size
+// and never an entry.
 type AgentSessionHistory struct {
-	// EntriesUsed is how many history entries the session holds (the same
-	// number as TranscriptLength).
+	// EntriesUsed is how many entries the live history holds. Once older
+	// entries have been dropped (EntriesDropped), it is less than
+	// TranscriptLength, which counts every entry ever written.
 	EntriesUsed int `json:"entries_used"`
-	// EntriesMax is the most history entries a session keeps (256).
+	// EntriesMax is the most entries a session's live history holds (256).
 	EntriesMax int `json:"entries_max"`
-	// EntriesLeft is EntriesMax less EntriesUsed, never below 0. A RunSteps
-	// call needs 1 free entry, a note in manual mode 1, and an AI Message 3:
-	// with 1 or 2 left a steps call still runs and an AI message closes the
-	// session.
+	// EntriesLeft is EntriesMax less EntriesUsed, never below 0: the room
+	// before older entries are next dropped. A RunSteps call needs 1 free
+	// entry, a note in manual mode 1, and an AI Message 3. When a call does
+	// not fit, the oldest entries are dropped (the first task and the newest
+	// entries are kept) and the session goes on. The session is closed with
+	// ClosedReason "transcript-limit" only when one call needs more room than
+	// that leaves, or when it has already dropped the most entries it can
+	// (4,096).
 	EntriesLeft int `json:"entries_left"`
 	// NearlyFull is true when fewer than 32 entries are left, or when the
 	// history is close to its size limit (a session with long entries can
-	// reach that first). Finish and start a new session; pass
-	// ContinueFromAgentSessionID to carry the recent conversation over.
+	// reach that first). The next calls will drop the oldest entries from the
+	// live history (the first task is kept) and the session goes on; you need
+	// do nothing.
 	NearlyFull bool `json:"nearly_full"`
+	// EntriesDropped is how many of the oldest entries have been dropped from
+	// the live history so the session could go on (0 until the first time it
+	// was full). They are not lost: Transcript still returns them under their
+	// own numbers. The agent no longer works from them, except the first task,
+	// which is always kept. Nil from servers that close a full session
+	// instead.
+	EntriesDropped *int `json:"entries_dropped,omitempty"`
 }
 
 // AgentResponseWarning is a non-fatal warning beside a result: Warning on a
 // Message or RunSteps answer ("history_nearly_full": the answer's
 // Session.History.NearlyFull is true), and ConflictError.Warning for a session
-// its full history closed ("history_full"). Code is an open set: match the
+// closed because its history could not take a call ("history_full"). Code is
+// an open set: match the
 // codes you know and show Message for any other.
 type AgentResponseWarning struct {
 	Code    string `json:"code"`
@@ -101,8 +116,12 @@ type AgentSession struct {
 	ReadyAt              *string `json:"ready_at,omitempty"`
 	TokenBudgetTotal     int     `json:"token_budget_total"`
 	TokenBudgetRemaining int     `json:"token_budget_remaining"`
-	TranscriptLength     int     `json:"transcript_length"`
-	// History is how much history the session has left; nil on a closed
+	// TranscriptLength is how many entries the session has written in all,
+	// including entries since dropped from its live history
+	// (History.EntriesDropped): it never goes down. The newest entry is number
+	// TranscriptLength-1 on Transcript.
+	TranscriptLength int `json:"transcript_length"`
+	// History is how much room the session's live history has; nil on a closed
 	// session, in the rows of List (use Get), when the server cannot count the
 	// history, and from an older server. On the Session of a Message or
 	// RunSteps answer it already counts
@@ -119,7 +138,7 @@ type AgentSession struct {
 	// in the Driftstack desktop app.
 	Mode string `json:"mode"`
 	// Model is the Claude model the AI runs for this session (set at create;
-	// defaults to "claude-sonnet-5").
+	// defaults to "claude-sonnet-5-5").
 	Model string `json:"model"`
 	// StopOnExitIPChange is whether the session stops when its exit IP
 	// changes (set at create; default false).
@@ -266,10 +285,11 @@ type CreateAgentSessionRequest struct {
 	// for a person driving the browser; "pair" lets a person take over.
 	Mode string `json:"mode,omitempty"`
 	// Model is the Claude model the AI runs. Empty string omits the field so
-	// the server applies its default ("claude-sonnet-5").
-	// Valid: "claude-fable-5-1" | "claude-opus-5-5" | "claude-opus-5" |
-	// "claude-sonnet-5" | "claude-opus-4-8" | "claude-opus-4-7" |
-	// "claude-sonnet-4-6" | "claude-haiku-4-5". Opus models and Claude Fable
+	// the server applies its default ("claude-sonnet-5-5").
+	// Valid: "claude-sonnet-5-5" | "claude-haiku-5-5" | "claude-fable-5-1" |
+	// "claude-opus-5-5" | "claude-opus-5" | "claude-sonnet-5" |
+	// "claude-opus-4-8" | "claude-opus-4-7" | "claude-sonnet-4-6" |
+	// "claude-haiku-4-5". Opus models and Claude Fable
 	// 5.1 run only on your own Anthropic key: when the session would run on
 	// Driftstack's included AI, Create returns a 403 *ForbiddenError whose
 	// RequiresOwnKey() is true.
@@ -1210,7 +1230,9 @@ type AgentTranscriptEntry struct {
 }
 
 // AgentTranscriptEvent is one item handed to Transcript's callback: the
-// entry and its 0-based position in the conversation. Pass the last Index you
+// entry and its number in the conversation, counted from 0. The number is
+// absolute: it never changes, also after older entries were dropped from the
+// session's live history (History.EntriesDropped). Pass the last Index you
 // saw as TranscriptOptions.LastEventID to carry on from there.
 type AgentTranscriptEvent struct {
 	Index int                  `json:"index"`
@@ -1231,7 +1253,8 @@ type TranscriptOptions struct {
 }
 
 // Transcript reads a session's conversation, then follows it live. fn is
-// called with every entry already in the transcript, oldest first, and then
+// called with every entry the session has written, oldest first (entries
+// dropped from its live history included, under their own numbers), and then
 // with each new entry as it is written — so the call does not return by itself
 // while the session is open. Return false from fn to stop (Transcript
 // then returns nil), or an error to stop with that error; cancelling ctx stops
@@ -1243,6 +1266,13 @@ type TranscriptOptions struct {
 // The call also returns nil when the server closes the stream (your key lost
 // access, or the connection was recycled); call again with LastEventID to
 // carry on. When the time limit passes it returns context.DeadlineExceeded.
+//
+// One call may not return a long session's whole history. It returns a
+// *TransportError when the stream passes the SDK's 8 MiB response limit, or
+// when the server closes the stream because the reader fell behind (a
+// transcript.error event; the message names its code). In both cases call
+// again with LastEventID set to the last Index you received: nothing is lost
+// or repeated.
 //
 // Entries are returned as the session recorded them: Body is free text, and
 // may contain whatever was sent to the agent. Treat the transcript as
@@ -1260,7 +1290,12 @@ func (r *AgentSessionsResource) Transcript(ctx context.Context, agentSessionID s
 		streamTimeout: AgentMessageStreamTimeout,
 		onOpenFrame: func(name string, data []byte) (bool, error) {
 			// The set of event names is open: anything that is not a transcript
-			// entry, or does not decode as one, is skipped, never an error.
+			// entry, or does not decode as one, is skipped, never an error. The
+			// one exception is transcript.error: the server closes the stream
+			// right after it, so it ends the call with a *TransportError.
+			if name == "transcript.error" {
+				return false, transcriptClosedByServer(data)
+			}
 			if name != "transcript.entry" {
 				return true, nil
 			}
@@ -1283,6 +1318,32 @@ func (r *AgentSessionsResource) Transcript(ctx context.Context, agentSessionID s
 		}
 	}
 	return r.client.doEventStream(ctx, req)
+}
+
+// transcriptClosedByServer turns a transcript.error frame into the error
+// Transcript returns. The server sends that frame, then closes the stream
+// itself (Code is "stalled", "live_queue_full", "backlog", "access_ended",
+// "server_error" or "shutdown"; the set is open). Frames reach here only on a 2xx event-stream
+// response, so Status is 200.
+func transcriptClosedByServer(data []byte) error {
+	var fields struct {
+		Code   *string `json:"code"`
+		Detail *string `json:"detail"`
+	}
+	_ = json.Unmarshal(data, &fields)
+	code := "unknown"
+	if fields.Code != nil {
+		code = *fields.Code
+	}
+	detail := ""
+	if fields.Detail != nil {
+		detail = " " + *fields.Detail
+	}
+	return &TransportError{apiError: apiError{
+		Status: 200,
+		Message: "the server closed the transcript stream (code: " + code + ")." + detail +
+			" Call Transcript again with LastEventID set to the last Index you received.",
+	}}
 }
 
 // CloseOptions says why a session is being closed. Reason is one of

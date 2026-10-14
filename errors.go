@@ -221,7 +221,7 @@ func (e *ConflictError) ClosedReasonDetail() string {
 }
 
 // Warning is set when a Message or RunSteps call was refused because the
-// session's history was full
+// session's history could not take it
 // (ClosedReason is "transcript-limit"): Code "history_full" and a sentence
 // saying what to do next. Nil on every other conflict and on older servers.
 func (e *ConflictError) Warning() *AgentResponseWarning {

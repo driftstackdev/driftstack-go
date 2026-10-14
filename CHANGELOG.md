@@ -23,6 +23,31 @@ follows [SemVer](https://semver.org/spec/v2.0.0.html).
   `AccountLimitsBucket`, `AccountLimitsOverride`, `AccountLimitsCap`,
   `AccountLimitsCapOverride`, `LimitFigure`.
 
+- **`AgentSessionHistory.EntriesDropped`, and a full history no longer closes
+  the session (2026-10-15).** When a call does not fit in the session's
+  history (256 entries or 1 MiB), the server now drops the oldest entries from
+  the history the agent works from and the session goes on: the first task and
+  the newest entries are kept. This replaces the close described in the
+  2026-10-12 `History` entry below. Dropped entries are not lost: `Transcript`
+  still hands them to your callback under their own numbers. An entry's
+  `Index` never changes, and `TranscriptLength` counts every entry ever
+  written, dropped ones included, so the newest entry is
+  `TranscriptLength-1`; `History.EntriesUsed` counts only the live history, so
+  it is no longer the same number as `TranscriptLength` once entries were
+  dropped. The new field `EntriesDropped *int` says how many were (0 until the
+  first drop; nil from servers that close instead). A session still closes
+  with ClosedReason `"transcript-limit"` (and `ConflictError.Warning()` Code
+  `"history_full"`) only when one call alone needs more room than the history
+  has after a drop, or when it has already dropped the most it can (4,096
+  entries or 16 MiB). `Transcript` skips the new `transcript.rolled_off`
+  stream event, as it skips any frame that is not a `transcript.entry`.
+  `Transcript` now returns a `*TransportError` on the new `transcript.error`
+  stream event: the server sends it, then closes the stream itself (code
+  `"stalled"`, `"live_queue_full"`, `"backlog"`, `"access_ended"`,
+  `"server_error"` or `"shutdown"`; the message names it). A long session's replay can also pass the SDK's
+  8 MiB response limit, which returns a `*TransportError` too. So one call may not return every entry: call
+  `Transcript` again with `LastEventID` set to the last `Index` you received;
+  nothing is lost or repeated. Doc comments updated to match.
 - **`"agent_sessions:steps"`** can appear as `RateLimitBucket.BucketKey` in
   `Account.RateLimits` (2026-10-12): `AgentSessions.RunSteps` now counts
   against its own bucket instead of `"agent_sessions:message"`. A list of
@@ -31,6 +56,10 @@ follows [SemVer](https://semver.org/spec/v2.0.0.html).
   and grows when your session limit is raised. `Message` stays on
   `"agent_sessions:message"`. `BucketKey` is a `string`, so nothing to change
   unless you switch on it.
+- **Two more agent-session models (2026-10-12): `"claude-sonnet-5-5"` (Claude
+  Sonnet 5.5) and `"claude-haiku-5-5"` (Claude Haiku 5.5).** Both run on your own
+  key and on Driftstack's included AI. Every
+  earlier id stays accepted.
 - **`AgentSession.History`, and `Warning` on a message or steps answer
   (2026-10-12).** A session keeps at most 256 history entries (and 1 MiB); the
   call that does not fit closes it with ClosedReason `"transcript-limit"`.
@@ -369,6 +398,11 @@ follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **The default agent-session model is Claude Sonnet 5.5 (2026-10-12).** A
+  session created with an empty `Model` now runs `"claude-sonnet-5-5"` (it was
+  `"claude-sonnet-5"`). A session
+  that names its model keeps it, and an existing session keeps the model it was
+  created with.
 - **Coming: a step field its kind does not take will be a 400 on
   `RunSteps`.** Nothing changes yet: today the server drops a field a step's
   `Kind` does not take, and the step runs without it. A later server release

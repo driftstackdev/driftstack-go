@@ -267,7 +267,11 @@ if s.TranscriptLength > 0 {
 ```
 
 Set `TranscriptOptions.LastEventID` (the last `Index` you saw) to carry on from
-there.
+there. On a long session one call may stop before the end with a
+`*TransportError`: the stream passed the SDK's 8 MiB response limit, or the
+server closed it because the reader fell behind (a `transcript.error` event).
+Call `Transcript` again with `LastEventID` set to the last `Index` you
+received; nothing is lost or repeated.
 
 AI refusals are typed: `*ForbiddenError` with `RequiresOwnKey()` (an Opus model
 needs your own Anthropic key), `*ConflictError` with `TurnInProgress()` /
