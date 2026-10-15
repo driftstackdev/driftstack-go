@@ -425,6 +425,60 @@ func TestSessionNotReadyIsARetryableConflictWithItsWait(t *testing.T) {
 	}
 }
 
+func TestMaintenanceIsARetryable503WithItsWindowEnd(t *testing.T) {
+	t.Parallel()
+	// B-292-h: every machine that could run a new session is in a booked
+	// maintenance window. Nothing was created, so it is retryable after Until.
+	body := []byte(`{"type":"https://errors.driftstack.dev/maintenance","title":"Maintenance","status":503,"detail":"This machine is in maintenance until 14:30 UTC; please try again then.","code":"maintenance","retryable":true,"until":"2026-10-14T14:30:00.000Z","retry_after_seconds":1200}`)
+	err := errorFromResponse(503, body, "1200")
+	var m *MaintenanceError
+	if !errors.As(err, &m) {
+		t.Fatalf("expected *MaintenanceError, got %T", err)
+	}
+	if m.Code != "maintenance" {
+		t.Errorf("Code=%q, want maintenance", m.Code)
+	}
+	if m.Until != "2026-10-14T14:30:00.000Z" {
+		t.Errorf("Until=%q", m.Until)
+	}
+	if m.RetryAfterSeconds != 1200 {
+		t.Errorf("RetryAfterSeconds=%d, want 1200", m.RetryAfterSeconds)
+	}
+	if !m.Retryable {
+		t.Error("Retryable=false, want true")
+	}
+	if m.Status != 503 {
+		t.Errorf("status=%d, want 503", m.Status)
+	}
+	if !errors.Is(err, ErrMaintenance) {
+		t.Error("expected errors.Is ErrMaintenance")
+	}
+	if errors.Is(err, ErrInternal) {
+		t.Error("a maintenance refusal is not an internal error")
+	}
+	if !IsRetryable(err) {
+		t.Error("maintenance must be retryable: nothing was created")
+	}
+}
+
+func TestMaintenanceWithoutTheBodyWaitReadsTheHeader(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{"type":"https://errors.driftstack.dev/maintenance","title":"Maintenance","status":503,"until":42}`)
+	var m *MaintenanceError
+	if err := errorFromResponse(503, body, "90"); !errors.As(err, &m) {
+		t.Fatalf("expected *MaintenanceError, got %T", err)
+	}
+	if m.RetryAfterSeconds != 90 {
+		t.Errorf("RetryAfterSeconds=%d, want 90 (from the header)", m.RetryAfterSeconds)
+	}
+	if m.Until != "" {
+		t.Errorf("Until=%q, want empty for a non-string until", m.Until)
+	}
+	if err := errorFromResponse(503, body, ""); !errors.As(err, &m) || m.RetryAfterSeconds != 0 {
+		t.Errorf("RetryAfterSeconds=%d, want 0 when neither is sent", m.RetryAfterSeconds)
+	}
+}
+
 func TestDeviceUnavailableWithoutAReasonLeavesItEmpty(t *testing.T) {
 	t.Parallel()
 	body := []byte(`{"type":"https://errors.driftstack.dev/device-unavailable","title":"Device unavailable","status":409,"detail":"This device profile is on hold. Pick another device.","archetype":"iphone17promax_ios18_7_safari26_0_1"}`)

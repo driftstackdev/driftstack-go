@@ -102,6 +102,9 @@ var (
 	ErrTrialEnded = errors.New("trial ended")
 	// The agent session's browser is still starting (409, retryable).
 	ErrSessionNotReady = errors.New("session not ready")
+	// Every machine that could run a new session is in a booked maintenance
+	// window (503, retryable).
+	ErrMaintenance = errors.New("maintenance")
 )
 
 // AuthError covers any of the auth-related problem types. Use the
@@ -507,6 +510,25 @@ func (e *SessionNotReadyError) Is(target error) bool {
 	return target == ErrSessionNotReady || target == ErrConflict
 }
 
+// MaintenanceError — 503. A session start (AgentSessions.Create,
+// Sessions.Create, Profiles.Launch) refused because every machine that could
+// run it is in a booked maintenance window. Nothing was created; sessions
+// already running are not affected. Retryable: send the same request again
+// after Until (the same Idempotency-Key is safe to reuse, because nothing was
+// created). Until is when the window ends (ISO 8601, UTC; "" when the server
+// sent none); RetryAfterSeconds is how long until then (the Retry-After header
+// carries the same; 0 when neither was sent). Code is "maintenance".
+// errors.Is matches ErrMaintenance.
+type MaintenanceError struct {
+	apiError
+	Code              string
+	Retryable         bool
+	Until             string
+	RetryAfterSeconds int
+}
+
+func (e *MaintenanceError) Is(target error) bool { return target == ErrMaintenance }
+
 // PayloadTooLargeError — 413. The request is too large for where it has to
 // go, and nothing was sent there: a body over the endpoint's size limit, or a
 // file or cookie jar larger than the session takes at once. When the
@@ -793,7 +815,9 @@ func (e *PairModeStateInvalidTransitionError) Is(target error) bool {
 //
 // Retryable: TransportError, InternalError, RateLimitError,
 // SessionNotReadyError (the agent session's browser is still starting and
-// nothing ran; wait RetryAfterSeconds, then send again).
+// nothing ran; wait RetryAfterSeconds, then send again), MaintenanceError (a
+// session start during a booked maintenance window; nothing was created; send
+// it again after Until).
 // NOT retryable: ValidationError, AuthError, NotFoundError,
 // ConflictError, ConcurrencyLimitError, all auth-flow errors,
 // FeatureUnavailableError, MfaStepUpRequiredError.
@@ -839,6 +863,10 @@ func IsRetryable(err error) bool {
 	}
 	var notReady *SessionNotReadyError
 	if errors.As(err, &notReady) {
+		return true
+	}
+	var maintenance *MaintenanceError
+	if errors.As(err, &maintenance) {
 		return true
 	}
 	return false

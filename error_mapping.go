@@ -66,6 +66,9 @@ var problemTypeToFactory = map[string]func(base apiError, problem map[string]any
 	"https://errors.driftstack.dev/trial-ended": buildTrialEnded,
 	// The agent session's browser is still starting (409, retryable).
 	"https://errors.driftstack.dev/session-not-ready": buildSessionNotReady,
+	// Every machine that could run a new session is in a booked maintenance
+	// window (503, retryable).
+	"https://errors.driftstack.dev/maintenance": buildMaintenance,
 }
 
 // errorFromResponse parses an HTTP response body as RFC 7807
@@ -331,6 +334,32 @@ func buildSessionNotReady(base apiError, problem map[string]any, retryAfterHeade
 	}
 }
 
+func buildMaintenance(base apiError, problem map[string]any, retryAfterHeader string) error {
+	code, _ := problem["code"].(string)
+	until, _ := problem["until"].(string)
+	// Nothing was created, so it is retryable unless the server says otherwise.
+	retryable := true
+	if v, ok := problem["retryable"].(bool); ok {
+		retryable = v
+	}
+	retryAfter := intFromProblem(problem, "retry_after_seconds")
+	if retryAfter <= 0 && retryAfterHeader != "" {
+		if n, err := strconv.Atoi(retryAfterHeader); err == nil && n > 0 {
+			retryAfter = n
+		}
+	}
+	if retryAfter < 0 {
+		retryAfter = 0
+	}
+	return &MaintenanceError{
+		apiError:          base,
+		Code:              code,
+		Retryable:         retryable,
+		Until:             until,
+		RetryAfterSeconds: retryAfter,
+	}
+}
+
 func buildPayloadTooLarge(base apiError, problem map[string]any, _ string) error {
 	return &PayloadTooLargeError{
 		apiError:   base,
@@ -532,6 +561,7 @@ var (
 	_ error = (*ProxyRequiredError)(nil)
 	_ error = (*UpgradeRequiredError)(nil)
 	_ error = (*SessionNotReadyError)(nil)
+	_ error = (*MaintenanceError)(nil)
 	_ error = (*StorageQuotaExceededError)(nil)
 	_ error = (*ProxyValidationFailedError)(nil)
 	_ error = (*UnknownError)(nil)

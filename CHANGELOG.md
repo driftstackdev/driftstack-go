@@ -15,6 +15,16 @@ follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`MaintenanceError`** and **`ErrMaintenance`** (2026-10-14; HTTP 503,
+  type `https://errors.driftstack.dev/maintenance`). A session start
+  (`AgentSessions.Create`, `Sessions.Create`, `Profiles.Launch`) is refused this
+  way when every machine that could run it is in a booked maintenance window.
+  Nothing was created, and sessions already running are not affected. `Until`
+  is when the window ends (ISO 8601, UTC) and `RetryAfterSeconds` how long
+  until then (the `Retry-After` header carries the same); send the same request
+  again then — the same idempotency key is safe to reuse. `IsRetryable` returns
+  true.
+
 - **`Account.Limits`** (2026-10-13): `GET /v1/account/limits` in one read:
   each rate-limit bucket (`plan`, `override`, `effective`, `source`) and the
   counted limits (`concurrent_sessions`, `saved_profiles`,

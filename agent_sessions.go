@@ -820,7 +820,9 @@ type CreateOptions struct {
 // (no machine could take a new session just then; nothing was created and
 // nothing is stored under the idempotency key, so wait
 // Problem["retry_after_seconds"] — also the Retry-After header — and call
-// Create again with the same key).
+// Create again with the same key), 503 *MaintenanceError (every machine that
+// could run the session is in a booked maintenance window; nothing was
+// created, so call Create again with the same key after Until).
 func (r *AgentSessionsResource) Create(ctx context.Context, body *CreateAgentSessionRequest, opts *CreateOptions) (*AgentSession, error) {
 	var out AgentSession
 	if body == nil {
@@ -1281,7 +1283,8 @@ type TranscriptOptions struct {
 // Pass nil for opts to replay from the beginning with the default limit.
 //
 // Errors: 404 *NotFoundError; 429 *RateLimitError — an account may hold at most
-// 10 transcript streams open at once (wait RetryAfterSeconds).
+// 10 transcript streams open at once, and at most 4 may be sending a rolled-off
+// history at the same moment (16 per server); wait RetryAfterSeconds and call again.
 func (r *AgentSessionsResource) Transcript(ctx context.Context, agentSessionID string, opts *TranscriptOptions, fn func(AgentTranscriptEvent) (bool, error)) error {
 	req := requestOptions{
 		method:        "GET",
