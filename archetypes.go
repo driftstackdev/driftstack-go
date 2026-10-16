@@ -25,7 +25,8 @@ type PublicArchetype struct {
 	IsDefault      bool   `json:"is_default"`
 }
 
-// ListArchetypesResponse contains the current default and complete public catalog.
+// ListArchetypesResponse contains the complete public catalog. DefaultArchetypeID is
+// deprecated: there is no default device (see GET /v1/archetypes).
 type ListArchetypesResponse struct {
 	DefaultArchetypeID string            `json:"default_archetype_id"`
 	Data               []PublicArchetype `json:"data"`
@@ -36,7 +37,7 @@ type ArchetypesResource struct {
 	client *Client
 }
 
-// List returns every customer-selectable archetype and the current default.
+// List returns every customer-selectable archetype.
 func (r *ArchetypesResource) List(ctx context.Context) (*ListArchetypesResponse, error) {
 	var out ListArchetypesResponse
 	if err := r.client.do(ctx, requestOptions{

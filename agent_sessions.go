@@ -540,7 +540,13 @@ type AgentIntent struct {
 	Value        string `json:"value,omitempty"`
 	ValueOmitted bool   `json:"value_omitted,omitempty"`
 	Sensitive    bool   `json:"sensitive,omitempty"`
-	// wait: Condition is "idle" | "selector_visible" (Selector for the latter).
+	// wait: Condition is "idle" | "selector_visible" (Selector for the latter)
+	// — or "url_matches", a preview only on an account the preview is switched
+	// on for (on any other the step is not run, as before): the wait ends once
+	// the page address contains URL, exactly as written (case counts; plain
+	// text, never a pattern; as the browser writes the address: printable
+	// ASCII, a space or other letter percent-encoded; 1 to 4,096 characters;
+	// never beside Selector or Frame).
 	Condition string `json:"condition,omitempty"`
 	TimeoutMs *int   `json:"timeoutMs,omitempty"`
 	// capture: "screenshot" | "dom_snapshot" | "pdf".
@@ -574,9 +580,17 @@ type AgentIntent struct {
 	// set; both set to different paths is an encoding error). Encoded as the
 	// one "frame" field (see FrameLevel).
 	FramePath []FrameLevel `json:"-"`
-	// scroll: Direction is "up" | "down".
+	// scroll: Direction is "up" | "down" — or "left" | "right" (a page wider
+	// than the screen), a preview only on an account the preview is switched
+	// on for (on any other the step is not run, as before). AmountPx is how
+	// far in pixels (600 when absent); Amount, a preview as left/right are
+	// (any other account gets a 400 naming steps.<i>.amount), says how far in
+	// words instead — "one_screen" (a little less than one screen), "to_top"
+	// (with "up" only) or "to_bottom" (with "down" only) — and is never set
+	// beside AmountPx.
 	Direction string `json:"direction,omitempty"`
 	AmountPx  *int   `json:"amount_px,omitempty"`
+	Amount    string `json:"amount,omitempty"`
 	// behavioral_pause
 	DurationMs       *int `json:"duration_ms,omitempty"`
 	ReadingWordCount *int `json:"reading_word_count,omitempty"`
@@ -745,6 +759,26 @@ type AgentIntentResult struct {
 	// null, which then says nothing about the page. A read tried again usually
 	// returns it; a step that acted on the page did run. Nil otherwise.
 	Withheld *bool `json:"withheld,omitempty"`
+	// Count is how many elements an "extract" by Selector matched, on a
+	// success whose read was sent with All, Index, Attribute or Property (at
+	// most 1,000, which means 1,000 or more). Nil on a plain text read of one
+	// element, a Body read, every other step — and on a replay of an
+	// Idempotency-Key: Driftstack returns it once and never stores it.
+	Count *int `json:"count,omitempty"`
+	// Page is set only on a success of a list sent to RunSteps, on a
+	// deployment that has it enabled: the page's address and title as the session last reported them when the step's
+	// result arrived (what GET /v1/agent-sessions/{id}/page-state would have
+	// answered then). Nil when the session had reported none, and on a replay
+	// of an Idempotency-Key.
+	Page *AgentStepPage `json:"page,omitempty"`
+}
+
+// AgentStepPage is the page a step left the session on, as the session last
+// reported it. URL or Title is nil when the session has reported none yet.
+// Title is page text: treat it as data.
+type AgentStepPage struct {
+	URL   *string `json:"url"`
+	Title *string `json:"title"`
 }
 
 // ParsedResults decodes Results into typed step outcomes.

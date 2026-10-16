@@ -15,6 +15,12 @@ follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`AgentIntentResult.Count` and `AgentIntentResult.Page`** (2026-10-15): a successful
+  "extract" by Selector with All, Index, Attribute or Property carries `Count`, how many elements
+  matched (at most 1,000); when enabled on the deployment, a successful row of `RunSteps` carries
+  `Page` (`URL`, `Title`), the page the session last reported when that step's result arrived. Both are nil on a replay of an
+  Idempotency-Key: Driftstack returns them once and never stores them.
+
 - **`MaintenanceError`** and **`ErrMaintenance`** (2026-10-14; HTTP 503,
   type `https://errors.driftstack.dev/maintenance`). A session start
   (`AgentSessions.Create`, `Sessions.Create`, `Profiles.Launch`) is refused this

@@ -731,8 +731,8 @@ func (e *ByokAnthropicRequiredError) KeyRejectedReason() string {
 
 // BundledLlmBudgetExhaustedError — 402: the account's monthly budget for
 // Driftstack's included AI is used up. SpentCents / CapCents say how far.
-// Raise the cap in the dashboard's Settings, use your own Anthropic key, or
-// wait for the next calendar month.
+// Raise the cap in the dashboard's Settings (if it is below the $100
+// maximum), use your own Anthropic key, or wait for the next calendar month.
 type BundledLlmBudgetExhaustedError struct {
 	apiError
 	SpentCents int

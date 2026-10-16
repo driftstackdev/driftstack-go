@@ -863,8 +863,8 @@ type ProfileGeolocation struct {
 }
 
 // CreateProfileRequest matches the server's create-profile request.
-// Archetype defaults to the live catalog's default_archetype_id when omitted;
-// call GET /v1/archetypes instead of hard-coding a device generation.
+// When Archetype is omitted the server picks a random iPhone model open for new
+// profiles on your plan; call GET /v1/archetypes instead of hard-coding a device generation.
 type CreateProfileRequest struct {
 	Name        string   `json:"name"`
 	Archetype   string   `json:"archetype,omitempty"`
