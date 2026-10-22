@@ -25,7 +25,8 @@
 //	                                              account deletion the agent stops on
 //
 // Deployments without an AI provider reject these calls with
-// FeatureUnavailableError (exit code 2).
+// FeatureUnavailableError (exit code 2); a temporary AI outage (code
+// "ai_provider_unavailable") exits 1.
 package main
 
 import (
@@ -283,7 +284,13 @@ func reportError(err error) int {
 	var forbidden *driftstack.ForbiddenError
 	var rateLimit *driftstack.RateLimitError
 	var conflict *driftstack.ConflictError
+	var unavailable *driftstack.FeatureUnavailableError
 	switch {
+	case errors.As(err, &unavailable) && unavailable.Problem["code"] == "ai_provider_unavailable":
+		// Temporary: nothing ran, and the key you sent keeps this answer.
+		wait, _ := unavailable.Problem["retry_after_seconds"].(float64)
+		fmt.Fprintf(os.Stderr, "The AI service is temporarily unavailable, so nothing ran. Wait %.0fs, then send again with a new idempotency key.\n", wait)
+		return 1
 	case errors.Is(err, driftstack.ErrProxyRequired):
 		fmt.Fprintf(os.Stderr, "%v Set DRIFTSTACK_PROXY_ID to the id of one of your saved proxies.\n", err)
 		return 1

@@ -8,18 +8,50 @@ follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Documentation
 
+- **`(*ByokAnthropicRequiredError).KeyRejectedReason()`** can be `"organization_disabled"`
+  (2026-10-20): a message refused because Anthropic disabled the organization behind your own key,
+  or because that account has no credit left (`"billing"`), now answers this 502 with
+  `KeyRejected()` true instead of a 500 `*InternalError`. Resolve it with Anthropic or use a key
+  from another organization. The field stays an open string.
+
 - **`AgentSessions.Message` docs** (2026-10-13): a 503 `*FeatureUnavailableError` with
   `Problem["code"] == "ai_provider_unavailable"` is temporary (Driftstack's included AI is
   unavailable; nothing ran): wait `Problem["retry_after_seconds"]` and send the message again
   with a new idempotency key. The cannot-record-keys advice is for a 503 without a code only.
+- **`FeatureUnavailableError` docs and the `agent_chat` example** (2026-10-18, B-398-b): the type
+  doc names the 503s worth calling again (`dispatch_no_live_node` on Create, `StopUnconfirmed`,
+  `ai_provider_unavailable`), and
+  the example tells the user to wait and resend with a new idempotency key on
+  `ai_provider_unavailable` instead of "AI tasks are unavailable on this deployment".
 
 ### Added
 
+- **`TeamID` and `TeamName` on `AccountTeamMembership`** (2026-10-19): `Account.Me` team
+  entries name the owner's team (`team_<uuid>` and its name). Both are `*string`: nil when the
+  owner has no team record, when the name is blank, or when the server left the field out
+  because it could not read it. Go cannot tell those apart here.
+- **`"agent_sessions:tabs"`** can appear as `RateLimitBucket.BucketKey` in
+  `Account.RateLimits` (2026-10-18): the tab calls
+  (`POST /v1/agent-sessions/:id/tabs`) count against their own limit, with the
+  same figures as `"agent_sessions:steps"`, instead of `"agent_sessions:message"`.
+  Tab calls and `RunSteps` do not use up each other's rate. `BucketKey` is a
+  `string`, so nothing to change unless you switch on it.
+- **`NetworkDetail` on `CreateAgentSessionRequest` and `LaunchProfileRequest`** (2026-10-16): ask
+  for a session's network request detail (headers, timing, sizes, redirects). Default false; where
+  the deployment does not offer it, true is refused with a 400 (code `"network_detail_not_offered"`).
+  `AgentSession.NetworkDetail` (`Requested`, `Served`, `Reason`) is set on `Get` and the `Create`
+  answer.
 - **`AgentIntentResult.Count` and `AgentIntentResult.Page`** (2026-10-15): a successful
   "extract" by Selector with All, Index, Attribute or Property carries `Count`, how many elements
   matched (at most 1,000); when enabled on the deployment, a successful row of `RunSteps` carries
   `Page` (`URL`, `Title`), the page the session last reported when that step's result arrived. Both are nil on a replay of an
   Idempotency-Key: Driftstack returns them once and never stores them.
+- **`AgentMessageResponse.OwnKeyFallbackReason`** (2026-10-16). On an account
+  whose AI source is automatic, a `plan-executed`, `clarify`, `refuse` or
+  `stopped` turn says why it ran on your own Anthropic key instead of the
+  plan's AI credits: `"no_credits"`, `"credits_pending"`, `"debt"`,
+  `"tasks_in_flight"` or `"credits_skipped"`. Empty on every other turn. The set is open: match the
+  values you know.
 
 - **`MaintenanceError`** and **`ErrMaintenance`** (2026-10-14; HTTP 503,
   type `https://errors.driftstack.dev/maintenance`). A session start
@@ -87,6 +119,18 @@ follows [SemVer](https://semver.org/spec/v2.0.0.html).
   `"history_nearly_full"`, and `ConflictError.Warning()` returns Code
   `"history_full"` when a message or steps call is refused by a session that closed this way. New types
   `AgentSessionHistory` and `AgentResponseWarning`. Nil on older servers.
+- **`AccountProxyMetadata.Changes` and `AccountProxySaveChange`
+  (2026-10-10).** `CreateProxy` and `UpdateProxy` now say what a save changed
+  in the proxy you sent. Today that is DNS addresses removed from a WireGuard
+  config because a session cannot use them (loopback, link-local or
+  cloud-metadata, multicast, reserved): each entry has `Field`
+  (`"wireguard.dns"`), `Action` (`"removed"`), `Count`, `ReasonCode` and a
+  one-sentence `Note`. `Changes` is nil when the proxy was stored as sent, and
+  on every `ListProxies` row. It is a `*[]AccountProxySaveChange`, so
+  `AccountProxyMetadata` stays comparable; the new field breaks unkeyed struct
+  literals of `AccountProxyMetadata` (use field names). A WireGuard `dns`
+  address in `192.0.2.0/24` or `198.18.0.0/15` is now accepted when
+  `allowed_ips` cover it. Works against the API from 2026-10-10.
 - **`CreateAgentSessionRequest.IdleTimeoutSeconds` and
   `AgentSession.IdleTimeoutSeconds` (2026-10-12).** A shorter idle timeout chosen at
   create (a `*int`, 120 up to the mode's default; shorter only; nil sends
@@ -130,6 +174,13 @@ follows [SemVer](https://semver.org/spec/v2.0.0.html).
   carry the step without them, and the `Summary` says only how many were read.
   `All` beside `Body` or a `Property` on an `extract` is a 400 naming the
   field; on any other step it is ignored.
+- **`AccountSelfProfile.TrialStatus` (2026-10-09, B-120).** The free trial in
+  one word (`*string`, wire `trial_status`): `active`, `on_hold` (paused for a
+  check), `used`, `unavailable_email` or `ended`. Sent only while the server
+  runs its free-trial checks, and always for a trial on hold, one ended for a
+  disposable address (`unavailable_email`) or one ended for reuse (`used`,
+  B-1262); nil otherwise and from an older server.
+
 - **The Trash: kept 7 days, counts toward no limit, restores are limited
   (2026-10-08).** A deleted profile stays in the trash for at least 7 days
   (it was 30), then it is removed for good at the next daily clean-up. Profiles in the trash count toward no limit:
@@ -419,13 +470,61 @@ follows [SemVer](https://semver.org/spec/v2.0.0.html).
   `"claude-sonnet-5"`). A session
   that names its model keeps it, and an existing session keeps the model it was
   created with.
+- **An `idle` wait, and the wait before a list's first tap or type on a new
+  page, count a page showing its content as loaded 3 seconds after its
+  document was read.** Rolling out: on only for the accounts it has been
+  turned on for so far; on every other account such a page counts as loaded
+  only once it has finished loading, as before. A page whose document has been
+  read and shows content, but which is still fetching other files (adverts,
+  trackers), used to hold an `idle` wait until its time ran out (a `"failure"`,
+  `condition_not_met`); it now settles 3 seconds after its document was read.
+  A page with nothing in it yet still waits.
+- **An `idle` wait that ran out its time on a page already showing its content
+  is now a warned success, not a failure: the `"page_still_loading"` step
+  warning.** Rolling out: on only for the accounts it has been turned on for
+  so far; on every other account such a wait is still a `"failure"`. Such a
+  step used to be a `"failure"` ("waited 5 s; the page is
+  still loading", `condition_not_met`); it is now a `"success"` whose
+  `Warning.Kind` is `"page_still_loading"`, and the steps after it ran. The
+  `AgentStepWarning` doc comment names the kind (`Kind` stays a plain string).
+  A program that counted that failure now sees a success: read the warning. A
+  blank page, a verification check or an error page, and a wait that ran out while a new page was still loading in place of the one on screen (also when it is the same address, such as a reload or a form sent to its own address), or before the browser reported its last page load settling on the address it started loading (a load the site redirected elsewhere, at times a `back`), or in a session whose browser has reported no page loads, are still a `"failure"`.
+- **A selector tap refused because its control is off the screen while an
+  embedded frame covers the whole screen (a consent wall, for example) is
+  `element_covered`, not `target_unverified`.** A control off to the side of
+  the screen keeps its own off-to-the-side reason. Rolling out: on only for the
+  accounts it has been turned on for so far; on every other account such a
+  tap is still `target_unverified`. Its `Reason` is "nothing was
+  tapped: a notice or overlay is covering the page; close it first". Both are
+  not retryable; a program that branched on `target_unverified` for it now
+  sees `element_covered`.
+- **A selector that is a comma list and a `>>>` shadow path at once is refused
+  before it is sent.** A step whose selector has a comma at its top level and
+  a `>>>` (for example `host-a, host-b >>> button`), in `RunSteps` or an AI turn,
+  now fails without being sent: `diagnosis.category` `invalid_request`,
+  not retryable, and a `Reason` that is the step's name (`interact:tap`, `interact:type`,
+  `extract`, `wait` and so on) followed by "a comma list cannot be combined with >>> yet: split it into separate steps, or use :is() without >>>". In a list of steps a
+  refused step other than a `wait` ends the list, as any step that cannot be
+  sent does. It used to be sent, and the browser took the shadow root of
+  whatever the first part matched, so the list's other branches never
+  applied. Split it into one step per branch, or write the alternatives as
+  `:is(…)` without `>>>`. A comma inside any parentheses (`:is()`, `:not()`,
+  `:has()` …), inside `[…]` or quotes, or escaped as `\,` is not a top-level
+  comma and is unchanged. A `scroll` by selector on a browser that cannot
+  scroll to a selector is a plain scroll and is not refused.
+- **`index` on a step that is not an `extract` is a 400 on
+  `RunSteps`.** It was dropped, so a tap, type, wait or scroll acted on the
+  first match of its selector and reported success. It is now refused
+  (`validation-failed`, `steps.<i>.index`) and nothing in the list runs.
+  Only an `extract` reads a match by its position (`Index`).
 - **Coming: a step field its kind does not take will be a 400 on
-  `RunSteps`.** Nothing changes yet: today the server drops a field a step's
+  `RunSteps`.** Nothing else changes yet: today the server drops a field a step's
   `Kind` does not take, and the step runs without it. A later server release
   will refuse it with a 400 (`validation-failed`) naming `steps.<i>.<field>`,
   announced in the API changelog first. `AgentIntent` sends only the fields
-  you set (`omitempty`), so set only your step's own fields (`All` or `Index`
-  on a step that is not an `"extract"` is such a field). A key sent as JSON
+  you set (`omitempty`), so set only your step's own fields (`All` on a step
+  that is not an `"extract"` is such a field; `Index` there is already
+  refused, above). A key sent as JSON
   `null` is not set and stays accepted.
 - **A `tap_at` in `RunSteps` needs no screenshot.** It is no longer refused
   with "no screenshot has been taken since the page last changed": the point

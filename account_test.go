@@ -34,6 +34,8 @@ func TestAccount_Me(t *testing.T) {
 				"owner_account_id": "acc_00000000-0000-4000-8000-000000000099",
 				"role":             "admin",
 				"membership_id":    "mem_00000000-0000-4000-8000-000000000003",
+				"team_id":          "team_00000000-0000-4000-8000-000000000004",
+				"team_name":        "Growth team",
 			},
 		},
 	}
@@ -73,6 +75,12 @@ func TestAccount_Me(t *testing.T) {
 	}
 	if len(got.Teams) != 1 || got.Teams[0].Role != "admin" {
 		t.Errorf("teams=%v", got.Teams)
+	}
+	if got.Teams[0].TeamID == nil || *got.Teams[0].TeamID != "team_00000000-0000-4000-8000-000000000004" {
+		t.Errorf("team_id=%v", got.Teams[0].TeamID)
+	}
+	if got.Teams[0].TeamName == nil || *got.Teams[0].TeamName != "Growth team" {
+		t.Errorf("team_name=%v", got.Teams[0].TeamName)
 	}
 }
 

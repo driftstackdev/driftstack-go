@@ -51,6 +51,13 @@ type AccountTeamMembership struct {
 	OwnerName      *string `json:"owner_name"`  // nullable — owner's display name if set
 	Role           string  `json:"role"`        // "admin" | "member"
 	MembershipID   string  `json:"membership_id"`
+	// TeamID is the owner's team ("team_<uuid>"); nil when the owner has no
+	// team record, or when the server could not read it for this response.
+	TeamID *string `json:"team_id,omitempty"`
+	// TeamName is the team's name; nil when there is no team record, the name
+	// is blank, or the server could not read it for this response. Go cannot
+	// tell those cases apart: the JSON null and a left-out field both read as nil.
+	TeamName *string `json:"team_name,omitempty"`
 }
 
 // AccountSelfProfile — full /v1/account/me response. Includes all
@@ -87,11 +94,19 @@ type AccountSelfProfile struct {
 	ProfileRestoresLimit int `json:"profile_restores_limit"`
 	// ProxyCap / ProxyCount — the personal account's saved-proxy allowance
 	// (nil = unmetered) and usage. A team workspace's ride its proxy list.
-	ProxyCap    *int                    `json:"proxy_cap"`
-	ProxyCount  int                     `json:"proxy_count"`
-	TrialEndsAt *string                 `json:"trial_ends_at"` // ISO instant the free trial ends or ended; null = not on a trial
-	TrialEnded  bool                    `json:"trial_ended"`   // true: the trial is over; sign-in works, sessions need a plan
-	Teams       []AccountTeamMembership `json:"teams"`         // teams this account belongs to
+	ProxyCap    *int    `json:"proxy_cap"`
+	ProxyCount  int     `json:"proxy_count"`
+	TrialEndsAt *string `json:"trial_ends_at"` // ISO instant the free trial ends or ended; null = not on a trial
+	TrialEnded  bool    `json:"trial_ended"`   // true: the trial is over; sign-in works, sessions need a plan
+	// TrialStatus — the free trial in one word (B-120), sent only while the
+	// server runs its free-trial checks, and always for a trial on hold or one
+	// ended for a disposable address or for reuse (nil otherwise, and from an
+	// older server): "active", "on_hold" (paused for a check: sessions cannot start
+	// until it is released or a plan is chosen), "used" (this email or device
+	// already had a free trial), "unavailable_email" (free trials need a
+	// permanent email address) or "ended".
+	TrialStatus *string                 `json:"trial_status,omitempty"`
+	Teams       []AccountTeamMembership `json:"teams"` // teams this account belongs to
 	// Note: the rich /me response intentionally doesn't include
 	// any IP / user-agent fingerprint of the caller.
 	_ struct{} // force keyed-struct construction for forward-compat
@@ -119,7 +134,7 @@ func (r *AccountResource) Me(ctx context.Context) (*AccountSelfProfile, error) {
 
 // RateLimitBucket — per-bucket effective rate-limit config.
 type RateLimitBucket struct {
-	// "global" | "sessions:create" | "agent_sessions:message" | "agent_sessions:input_event" | "agent_sessions:live" | "agent_sessions:steps"
+	// "global" | "sessions:create" | "agent_sessions:message" | "agent_sessions:input_event" | "agent_sessions:live" | "agent_sessions:steps" | "agent_sessions:tabs"
 	BucketKey         string  `json:"bucket_key"`
 	Capacity          int     `json:"capacity"`
 	RefillPerSecond   float64 `json:"refill_per_second"`

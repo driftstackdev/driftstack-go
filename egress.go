@@ -77,6 +77,12 @@ type AccountProxyMetadata struct {
 	HasPresharedKey bool                   `json:"has_preshared_key"`
 	Config          *AccountProxyVpnConfig `json:"config"`
 	Revision        int                    `json:"revision"`
+	// Changes is set only on the answer of CreateProxy / UpdateProxy, and only
+	// when the save changed something in the proxy that was sent (today: DNS
+	// addresses removed from a WireGuard config). Nil when the proxy was stored
+	// as sent, and on every ListProxies row. A pointer to a slice so the struct
+	// stays comparable.
+	Changes *[]AccountProxySaveChange `json:"changes,omitempty"`
 	// MemberView / Country / Status — set on the narrow rows a team MEMBER
 	// gets from ListProxies in a team workspace (owner decision 3): name, type,
 	// country and status only; Host, Port, Username and HasPassword are then
@@ -139,6 +145,22 @@ type AccountProxyMetadata struct {
 	// reading by this: it is a stored measurement, not one your request made, and
 	// a reading you cannot date should be treated as stale rather than current.
 	OsFingerprintAt *string `json:"os_fingerprint_at"`
+}
+
+// AccountProxySaveChange is one thing a save changed in the proxy that was
+// sent. Today there is one kind: Field "wireguard.dns", Action "removed" —
+// DNS addresses in a WireGuard config that a session cannot use were left out
+// and the rest kept. Count is how many were removed for this reason;
+// ReasonCode is "loopback", "link_local", "multicast", "outside_allowed_ips",
+// "not_plain_ip" or "reserved"; Note says the same in one sentence. The removed
+// addresses are never repeated. Treat an unknown Field, Action or ReasonCode
+// as a new kind and show its Note.
+type AccountProxySaveChange struct {
+	Field      string `json:"field"`
+	Action     string `json:"action"`
+	Count      int    `json:"count"`
+	ReasonCode string `json:"reason_code"`
+	Note       string `json:"note"`
 }
 
 // AccountProxyExitObserved is the stored exit identity on AccountProxyMetadata.

@@ -111,6 +111,45 @@ func TestEgress_CreateProxy(t *testing.T) {
 	}
 }
 
+// A save that removed DNS addresses from a WireGuard config says so in
+// "changes"; a save that changed nothing omits the key and Changes stays nil.
+func TestEgress_CreateProxy_Changes(t *testing.T) {
+	t.Parallel()
+	_, client := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"apx_2","label":"wg","scheme":"wireguard","changes":[` +
+			`{"field":"wireguard.dns","action":"removed","count":1,"reason_code":"loopback","note":"n"}]}`))
+	})
+	got, err := client.Egress.CreateProxy(context.Background(), &AccountProxyInput{
+		Label:  "wg",
+		Scheme: "wireguard",
+		Host:   "vpn.example",
+		Port:   51820,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Changes == nil || len(*got.Changes) != 1 {
+		t.Fatalf("changes=%+v", got.Changes)
+	}
+	want := AccountProxySaveChange{Field: "wireguard.dns", Action: "removed", Count: 1, ReasonCode: "loopback", Note: "n"}
+	if (*got.Changes)[0] != want {
+		t.Errorf("change=%+v", (*got.Changes)[0])
+	}
+	// No key: nil, and the zero value does not send one.
+	var none AccountProxyMetadata
+	if err := json.Unmarshal([]byte(`{"id":"apx_3"}`), &none); err != nil {
+		t.Fatal(err)
+	}
+	if none.Changes != nil {
+		t.Errorf("changes should be nil, got %+v", none.Changes)
+	}
+	// Still comparable (a pointer, not a slice).
+	if none != (AccountProxyMetadata{ID: "apx_3"}) {
+		t.Errorf("metadata=%+v", none)
+	}
+}
+
 func TestEgress_ListProxies_EmptyList(t *testing.T) {
 	t.Parallel()
 	_, client := newServer(t, func(w http.ResponseWriter, r *http.Request) {

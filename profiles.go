@@ -236,9 +236,15 @@ func (r *ProfilesResource) Purge(ctx context.Context, profileID string) error {
 // here, use AgentSessionsResource.Create, setting ProfileID and ProxyID -- that
 // resource starts an iPhone Safari session and routes its traffic through the
 // saved proxy you name.
+//
+// NetworkDetail (B-844) asks for the session's network request detail, as
+// CreateAgentSessionRequest.NetworkDetail does; where the deployment does not
+// offer it, or the launch does not run through one of your proxies, the
+// launch is refused with a 400 (code "network_detail_not_offered").
 type LaunchProfileRequest struct {
-	Label   string `json:"label,omitempty"`
-	ProxyID string `json:"proxy_id,omitempty"`
+	Label         string `json:"label,omitempty"`
+	ProxyID       string `json:"proxy_id,omitempty"`
+	NetworkDetail bool   `json:"network_detail,omitempty"`
 }
 
 // Launch creates a session bound to this profile. Equivalent to

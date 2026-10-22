@@ -143,6 +143,11 @@ type AgentSession struct {
 	// StopOnExitIPChange is whether the session stops when its exit IP
 	// changes (set at create; default false).
 	StopOnExitIPChange bool `json:"stop_on_exit_ip_change"`
+	// NetworkDetail says whether the create asked for this session's network
+	// request detail (CreateAgentSessionRequest.NetworkDetail), whether it is
+	// served, and why not. Set on Get and on the Create answer only; nil on
+	// list rows, other calls' answers and from older servers.
+	NetworkDetail *AgentSessionNetworkDetail `json:"network_detail,omitempty"`
 	// IdleTimeoutSeconds is the idle timeout chosen at create with
 	// CreateAgentSessionRequest.IdleTimeoutSeconds, in seconds. Nil when the
 	// session uses its mode's default.
@@ -269,6 +274,17 @@ type SessionLiveness struct {
 	Fresh bool    `json:"fresh"`
 }
 
+// AgentSessionNetworkDetail is the network_detail echo on an agent session.
+// Reason is nil when Served is true; otherwise "not_requested",
+// "mode_off" (the deployment is not recording request detail for this
+// session) or "not_recorded" (asked, but the browser has sent no request
+// detail yet).
+type AgentSessionNetworkDetail struct {
+	Requested bool    `json:"requested"`
+	Served    bool    `json:"served"`
+	Reason    *string `json:"reason"`
+}
+
 // CreateAgentSessionRequest is the optional body for Create.
 type CreateAgentSessionRequest struct {
 	DriftstackSessionID string `json:"driftstack_session_id,omitempty"`
@@ -340,6 +356,12 @@ type CreateAgentSessionRequest struct {
 	// moment a later report shows a different one (ClosedReason
 	// "exit_ip_changed"). Omit (false) → default.
 	StopOnExitIPChange bool `json:"stop_on_exit_ip_change,omitempty"`
+	// NetworkDetail asks for this session's network request detail (headers,
+	// timing, sizes and redirects of each request in its network log). Omit
+	// (false) → not asked. Where the deployment does not offer request detail,
+	// true is refused with a 400 (code "network_detail_not_offered") and
+	// nothing is created. AgentSession.NetworkDetail says whether it is served.
+	NetworkDetail bool `json:"network_detail,omitempty"`
 	// IdleTimeoutSeconds sets a shorter idle timeout for this session, in
 	// whole seconds: it closes (ClosedReason "idle_timeout") after this long
 	// with nothing reaching its browser, instead of its mode's default (about
@@ -502,8 +524,26 @@ type AgentMessageResponse struct {
 	// sentence): "session_unresponsive" — this session stopped answering
 	// automated steps (the live view may still show the page) before anything
 	// was planned, so nothing was done with the message; end the session and
-	// launch a new one. Empty on every other refusal.
+	// launch a new one. "budget_low" — too little of the session's token
+	// budget is left for the message (nothing was charged); add the tokens
+	// RefuseReason names, or start a new session. Empty on every other
+	// refusal.
 	NoticeReason string `json:"notice_reason,omitempty"`
+	// OwnKeyFallbackReason is set only when the account's AI source is
+	// automatic and this turn ran on your own Anthropic key instead of the
+	// plan's AI credits, on a "plan-executed", "clarify", "refuse" or
+	// "stopped" turn. It says why, in one word; your own key paid for the turn:
+	//
+	//	"no_credits"      the AI credits are used up
+	//	"credits_pending" this period's AI credits are on their way
+	//	"debt"            the account owes AI credits
+	//	"tasks_in_flight" the plan's AI tasks at once were all running on credits
+	//	"credits_skipped" an earlier message did not fit in the AI credits, so
+	//	                  this session skips them for a while
+	//
+	// The set is OPEN: for a value this SDK version does not know, say the turn
+	// ran on your own key. Empty on every other turn, and on older servers.
+	OwnKeyFallbackReason string `json:"own_key_fallback_reason,omitempty"`
 	// StoppedDuring is what a "stopped" turn was doing when it noticed the
 	// stop: "planning", "executing", "reading_page" or "answering".
 	StoppedDuring string `json:"stopped_during,omitempty"`
@@ -696,7 +736,11 @@ type AgentFailureDiagnosis struct {
 // was made, and the page opened a JavaScript dialog after it, where none was
 // open before; Dialog is which one ("alert", "confirm", "prompt",
 // "beforeunload" or "http_auth") when the session reported it. Do not tap again: answer the
-// dialog with a "dialog" step. Summary never carries the dialog's text.
+// dialog with a "dialog" step. Summary never carries the dialog's text. And
+// "page_still_loading": a "wait" for "idle" ran out its time while the page
+// was still busy loading, and a look right after it found the page's content
+// already showing, so the steps after it ran (a page with nothing on it is
+// still a "failure").
 type AgentStepWarning struct {
 	Kind   string `json:"kind"`
 	Status *int   `json:"status,omitempty"`
@@ -1138,7 +1182,11 @@ type RunStepsOptions struct {
 // planning, no read-back, and none of the AI budget used. The steps are the
 // vocabulary a message's Intents use, and they go through the same checks. A
 // step this session cannot run (one outside the vocabulary, an address on a
-// private network or with a user name or password, a key no iPhone keyboard
+// private network — for a step you send here, as for a tab open, a
+// name only a private network answers included: one with no dot
+// such as http://intranet/, one ending .lan, .corp, .svc or another
+// private-use suffix, a nip.io-style name for a private address or for none —
+// or with a user name or password, a key no iPhone keyboard
 // has, a native list, a frame the page did not list or this device cannot act
 // in) is a failed step in Results whose Reason says why;
 // nothing after it is sent, and the steps after it are listed in Intents with

@@ -479,8 +479,11 @@ func (e *ProfileInUseError) Is(target error) bool {
 // the hold in one plain sentence ("" when there is none); Error() is a
 // sentence you can show.
 // Launch a profile on another device (GET /v1/archetypes lists the ones
-// offered). errors.Is matches both ErrDeviceUnavailable and the broader
-// ErrConflict.
+// offered). With a body code of archetype_not_served it means instead that no
+// connected machine serves this device right now; nothing was created: pick
+// another device, or try again in a minute (GET /v1/archetypes/availability
+// shows available_now). The SDK does not retry it for you. errors.Is matches
+// both ErrDeviceUnavailable and the broader ErrConflict.
 type DeviceUnavailableError struct {
 	apiError
 	Archetype  string
@@ -655,6 +658,16 @@ func (e *EmailNotVerifiedError) Is(target error) bool { return target == ErrEmai
 // FeatureUnavailableError — an endpoint requires infrastructure not
 // configured in this deployment (e.g. avatar uploads when R2 isn't
 // wired). HTTP 503.
+//
+// A deployment state, not a bad moment, which is why IsRetryable is false
+// for the type. These 503s of this type ARE worth calling again yourself:
+// Problem["code"] == "dispatch_no_live_node" on AgentSessions.Create (the
+// same key; see Create), StopUnconfirmed on AgentSessions.Stop, and
+// Problem["code"] ==
+// "ai_provider_unavailable" on a message (Driftstack's included AI is
+// temporarily unavailable; nothing ran): wait Problem["retry_after_seconds"],
+// then send the message again with a new idempotency key (the one you sent
+// keeps this answer).
 type FeatureUnavailableError struct{ apiError }
 
 func (e *FeatureUnavailableError) Is(target error) bool { return target == ErrFeatureUnavailable }
@@ -721,9 +734,11 @@ func (e *ByokAnthropicRequiredError) KeySource() string {
 }
 
 // KeyRejectedReason is why it was refused: "invalid_or_unauthorized" (invalid,
-// revoked, or not permitted to run the model — replace it) or "billing" (the
+// revoked, or not permitted to run the model — replace it), "billing" (the
 // Anthropic account behind it cannot pay for the call — fix billing with
-// Anthropic). An open string; empty unless KeyRejected.
+// Anthropic) or "organization_disabled" (Anthropic disabled the organization
+// the key belongs to — resolve it with Anthropic or use a key from another
+// one). An open string; empty unless KeyRejected.
 func (e *ByokAnthropicRequiredError) KeyRejectedReason() string {
 	v, _ := e.Problem["key_rejected_reason"].(string)
 	return v
